@@ -1,0 +1,11 @@
+{
+  "name": "dalgo-mvp-backend",
+  "version": "0.1.0",
+  "description": "MVP backend: cálculo de tarifa y asignación automática de conductor",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {}
+}
