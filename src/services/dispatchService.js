@@ -1,12 +1,12 @@
 const { distanciaKm } = require("../utils/geo");
-const mockDrivers = require("../data/mockDrivers");
+const conductoresStore = require("../data/conductoresStore");
 
 /**
- * Encuentra al conductor disponible más cercano a la ubicación del cliente.
+ * Encuentra al conductor real disponible más cercano a la ubicación del cliente.
  * @param {{lat:number, lng:number}} ubicacionCliente
  */
 function asignarConductor(ubicacionCliente) {
-  const disponibles = mockDrivers.listarDisponibles();
+  const disponibles = conductoresStore.disponibles();
 
   if (disponibles.length === 0) {
     return { asignado: false, motivo: "No hay conductores disponibles" };
