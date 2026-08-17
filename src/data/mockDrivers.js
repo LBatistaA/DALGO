@@ -20,4 +20,15 @@ function marcarOcupado(id) {
   );
 }
 
-module.exports = { listarDisponibles, marcarOcupado, todos: () => conductores };
+function marcarDisponible(id) {
+  conductores = conductores.map((c) =>
+    c.id === id ? { ...c, disponible: true } : c
+  );
+}
+
+module.exports = {
+  listarDisponibles,
+  marcarOcupado,
+  marcarDisponible,
+  todos: () => conductores,
+};
