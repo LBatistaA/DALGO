@@ -229,6 +229,52 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    // GET /conductor/:id/historial — todos sus pedidos, para la
+    // pantalla "Mis viajes"
+    if (
+      req.method === "GET" &&
+      partes[0] === "conductor" &&
+      partes[2] === "historial"
+    ) {
+      const historial = await pedidosStore.obtenerPorConductor(partes[1]);
+      return enviarJSON(res, 200, { historial });
+    }
+
+    // GET /conductor/:id/ganancias — totales de hoy, esta semana y este
+    // mes, para la pantalla "Ganancias"
+    if (
+      req.method === "GET" &&
+      partes[0] === "conductor" &&
+      partes[2] === "ganancias"
+    ) {
+      const historial = await pedidosStore.obtenerPorConductor(partes[1]);
+      const completados = historial.filter((p) => p.estado === "completado");
+
+      const ahora = new Date();
+      const hoyStr = ahora.toISOString().slice(0, 10);
+      const mesStr = ahora.toISOString().slice(0, 7);
+      const haceUnaSemana = new Date(ahora.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+      const calcular = (lista) => ({
+        monto: Number(
+          lista.reduce((s, p) => s + (p.tarifa?.tarifa || 0), 0).toFixed(2)
+        ),
+        cantidad: lista.length,
+      });
+
+      const deHoy = completados.filter((p) => p.creadoEn.slice(0, 10) === hoyStr);
+      const deEstaSemana = completados.filter(
+        (p) => new Date(p.creadoEn) >= haceUnaSemana
+      );
+      const deEsteMes = completados.filter((p) => p.creadoEn.slice(0, 7) === mesStr);
+
+      return enviarJSON(res, 200, {
+        hoy: calcular(deHoy),
+        semana: calcular(deEstaSemana),
+        mes: calcular(deEsteMes),
+      });
+    }
+
     // GET /conductor/:id/pedido-pendiente
     if (
       req.method === "GET" &&
