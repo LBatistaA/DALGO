@@ -5,8 +5,8 @@ const conductoresStore = require("../data/conductoresStore");
  * Encuentra al conductor real disponible más cercano a la ubicación del cliente.
  * @param {{lat:number, lng:number}} ubicacionCliente
  */
-function asignarConductor(ubicacionCliente) {
-  const disponibles = conductoresStore.disponibles();
+async function asignarConductor(ubicacionCliente) {
+  const disponibles = await conductoresStore.disponibles();
 
   if (disponibles.length === 0) {
     return { asignado: false, motivo: "No hay conductores disponibles" };

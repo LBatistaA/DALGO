@@ -1,95 +1,119 @@
-// Registro de conductores reales, en memoria (igual que pedidosStore —
-// cuando el proyecto avance, esto se reemplaza por una base de datos real).
-//
-// Cada conductor tiene:
-// - id: el UID de Firebase Authentication (viene de la app del conductor)
-// - enLinea: true/false — el conductor activó el switch de "en línea"
-// - ocupado: true/false — tiene un pedido asignado ahora mismo
-// - lat/lng: su última ubicación reportada (null si nunca reportó)
-//
-// "Disponible para que le asignen un pedido" = enLinea && !ocupado && lat/lng conocidos
+const { db } = require("../firebaseAdmin");
 
-let conductores = {};
+const COLECCION = "conductores";
 
-function registrar({ id, nombre, telefono }) {
-  const existente = conductores[id];
-  conductores[id] = {
+async function registrar({ id, nombre, telefono }) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  const existente = snap.exists ? snap.data() : null;
+
+  const datos = {
     id,
     nombre,
-    telefono: telefono || (existente ? existente.telefono : null),
-    enLinea: existente ? existente.enLinea : false,
-    ocupado: existente ? existente.ocupado : false,
-    lat: existente ? existente.lat : null,
-    lng: existente ? existente.lng : null,
-    placa: existente ? existente.placa : null,
-    documentos: existente ? existente.documentos : null,
-    // pendiente | aprobado | rechazado — un conductor recién registrado
-    // no puede ponerse en línea hasta que se revisen sus documentos
-    estadoVerificacion: existente ? existente.estadoVerificacion : "pendiente",
+    telefono: telefono || (existente ? existente.telefono || null : null),
+    enLinea: existente ? !!existente.enLinea : false,
+    ocupado: existente ? !!existente.ocupado : false,
+    lat: existente && existente.lat != null ? existente.lat : null,
+    lng: existente && existente.lng != null ? existente.lng : null,
+    placa: existente ? existente.placa || null : null,
+    documentos: existente ? existente.documentos || null : null,
+    // pendiente | aprobado | rechazado — recién registrado no puede
+    // ponerse en línea hasta que se revisen sus documentos
+    estadoVerificacion: existente ? existente.estadoVerificacion || "pendiente" : "pendiente",
   };
-  return conductores[id];
+
+  await ref.set(datos, { merge: true });
+  return datos;
 }
 
-function guardarDocumentos(id, { placa, licencia, papelesVehiculo, cedula, fotoVehiculo }) {
-  if (!conductores[id]) return null;
-  conductores[id].placa = placa;
-  conductores[id].documentos = { licencia, papelesVehiculo, cedula, fotoVehiculo };
-  // Cada vez que sube/actualiza documentos, vuelve a quedar pendiente
-  // de revisión (por si estaba rechazado y los corrigió).
-  conductores[id].estadoVerificacion = "pendiente";
-  return conductores[id];
+async function obtener(id) {
+  const snap = await db.collection(COLECCION).doc(id).get();
+  return snap.exists ? snap.data() : null;
 }
 
-function actualizarVerificacion(id, estado) {
-  if (!conductores[id]) return null;
-  conductores[id].estadoVerificacion = estado; // 'aprobado' | 'rechazado'
-  return conductores[id];
+async function guardarDocumentos(id, { placa, licencia, papelesVehiculo, cedula, fotoVehiculo }) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+
+  const cambios = {
+    placa,
+    documentos: { licencia, papelesVehiculo, cedula, fotoVehiculo },
+    // Cada vez que sube/actualiza documentos, vuelve a quedar pendiente
+    // de revisión (por si estaba rechazado y los corrigió).
+    estadoVerificacion: "pendiente",
+  };
+  await ref.update(cambios);
+  return { ...snap.data(), ...cambios };
 }
 
-function obtener(id) {
-  return conductores[id] || null;
+async function actualizarVerificacion(id, estado) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.update({ estadoVerificacion: estado });
+  return { ...snap.data(), estadoVerificacion: estado };
 }
 
-function actualizarUbicacion(id, lat, lng) {
-  if (!conductores[id]) return null;
-  conductores[id].lat = lat;
-  conductores[id].lng = lng;
-  return conductores[id];
+async function actualizarUbicacion(id, lat, lng) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.update({ lat, lng });
+  return { ...snap.data(), lat, lng };
 }
 
-function marcarEnLinea(id, enLinea) {
-  if (!conductores[id]) return null;
+async function marcarEnLinea(id, enLinea) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  const actual = snap.data();
+
   // Un conductor no verificado no puede ponerse en línea, sin importar
   // qué le mande la app (protección también del lado del servidor).
-  if (enLinea && conductores[id].estadoVerificacion !== "aprobado") {
-    return { ...conductores[id], _bloqueado: true };
+  if (enLinea && actual.estadoVerificacion !== "aprobado") {
+    return { ...actual, _bloqueado: true };
   }
-  conductores[id].enLinea = enLinea;
-  return conductores[id];
+
+  await ref.update({ enLinea });
+  return { ...actual, enLinea };
 }
 
-function marcarOcupado(id) {
-  if (!conductores[id]) return null;
-  conductores[id].ocupado = true;
-  return conductores[id];
+async function marcarOcupado(id) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.update({ ocupado: true });
+  return { ...snap.data(), ocupado: true };
 }
 
-function marcarDisponible(id) {
-  if (!conductores[id]) return null;
-  conductores[id].ocupado = false;
-  return conductores[id];
+async function marcarDisponible(id) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.update({ ocupado: false });
+  return { ...snap.data(), ocupado: false };
 }
 
-// Conductores que ahora mismo podrían recibir un pedido nuevo
-function disponibles() {
-  return Object.values(conductores).filter(
-    (c) =>
-      c.enLinea &&
-      !c.ocupado &&
-      c.lat != null &&
-      c.lng != null &&
-      c.estadoVerificacion === "aprobado"
+// Conductores que ahora mismo podrían recibir un pedido nuevo.
+// Filtramos en Firestore solo por estadoVerificacion (así no hace falta
+// crear un índice compuesto); el resto de condiciones se filtran aquí,
+// que con pocos conductores es rápido y simple.
+async function disponibles() {
+  const snap = await db
+    .collection(COLECCION)
+    .where("estadoVerificacion", "==", "aprobado")
+    .get();
+
+  const todosAprobados = snap.docs.map((d) => d.data());
+  return todosAprobados.filter(
+    (c) => c.enLinea && !c.ocupado && c.lat != null && c.lng != null
   );
+}
+
+async function todos() {
+  const snap = await db.collection(COLECCION).get();
+  return snap.docs.map((d) => d.data());
 }
 
 module.exports = {
@@ -102,5 +126,5 @@ module.exports = {
   marcarOcupado,
   marcarDisponible,
   disponibles,
-  todos: () => Object.values(conductores),
+  todos,
 };
