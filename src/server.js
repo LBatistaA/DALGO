@@ -82,7 +82,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       const tarifa = calcularTarifa(tipoServicio, origen, destino, tipoVehiculo);
-      const candidatos = await buscarCandidatos(origen, tipoVehiculo || null);
+      const candidatos = await buscarCandidatos(origen, tipoVehiculo || null, tipoServicio);
 
       if (candidatos.length === 0) {
         return enviarJSON(res, 200, {
@@ -341,7 +341,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     // POST /pedido/:id/completar
+    // El body puede incluir { estrellas: 1-5 } — la calificación que el
+    // conductor le da al usuario.
     if (req.method === "POST" && partes[0] === "pedido" && partes[2] === "completar") {
+      const body = await leerCuerpo(req);
       const pedido = await pedidosStore.actualizarEstado(partes[1], "completado");
       if (!pedido) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
       await conductoresStore.marcarDisponible(pedido.conductorId);
@@ -352,9 +355,47 @@ const server = http.createServer(async (req, res) => {
           pedido.usuarioId,
           fareConfig.moviCoinsPorViaje
         );
+        if (body.estrellas) {
+          usuario = await usuariosStore.agregarCalificacion(
+            pedido.usuarioId,
+            Number(body.estrellas)
+          );
+        }
       }
 
       return enviarJSON(res, 200, { pedido, usuario });
+    }
+
+    // POST /conductor/:id/pausa  { pausado: true|false }
+    // "Descansando" — sigue en línea pero no le llegan pedidos nuevos.
+    if (req.method === "POST" && partes[0] === "conductor" && partes[2] === "pausa") {
+      const body = await leerCuerpo(req);
+      const conductor = await conductoresStore.marcarPausado(partes[1], !!body.pausado);
+      if (!conductor) return enviarJSON(res, 404, { error: "Conductor no registrado" });
+      return enviarJSON(res, 200, { conductor });
+    }
+
+    // POST /conductor/:id/servicios  { carrera: true|false, delivery: true|false }
+    if (
+      req.method === "POST" &&
+      partes[0] === "conductor" &&
+      partes[2] === "servicios"
+    ) {
+      const body = await leerCuerpo(req);
+      const conductor = await conductoresStore.actualizarServicios(partes[1], {
+        carrera: body.carrera !== false,
+        delivery: body.delivery !== false,
+      });
+      if (!conductor) return enviarJSON(res, 404, { error: "Conductor no registrado" });
+      return enviarJSON(res, 200, { conductor });
+    }
+
+    // POST /conductor/:id/zona  { zona: "Maracay, Aragua" }
+    if (req.method === "POST" && partes[0] === "conductor" && partes[2] === "zona") {
+      const body = await leerCuerpo(req);
+      const conductor = await conductoresStore.actualizarZona(partes[1], body.zona || null);
+      if (!conductor) return enviarJSON(res, 404, { error: "Conductor no registrado" });
+      return enviarJSON(res, 200, { conductor });
     }
 
     // POST /usuario/registrar

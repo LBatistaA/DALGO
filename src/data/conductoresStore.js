@@ -12,12 +12,18 @@ async function registrar({ id, nombre, telefono }) {
     nombre,
     telefono: telefono || (existente ? existente.telefono || null : null),
     enLinea: existente ? !!existente.enLinea : false,
+    pausado: existente ? !!existente.pausado : false, // "Descansando" — en línea pero sin recibir pedidos
     ocupado: existente ? !!existente.ocupado : false,
     lat: existente && existente.lat != null ? existente.lat : null,
     lng: existente && existente.lng != null ? existente.lng : null,
     placa: existente ? existente.placa || null : null,
     colorVehiculo: existente ? existente.colorVehiculo || null : null,
     tipoVehiculo: existente ? existente.tipoVehiculo || null : null, // 'moto' | 'carro'
+    zona: existente ? existente.zona || null : null,
+    // Qué tipos de servicio quiere recibir — por defecto, ambos
+    serviciosActivos: existente
+      ? existente.serviciosActivos || { carrera: true, delivery: true }
+      : { carrera: true, delivery: true },
     tieneDocumentos: existente ? !!existente.tieneDocumentos : false,
     // pendiente | aprobado | rechazado — recién registrado no puede
     // ponerse en línea hasta que se revisen sus documentos
@@ -130,9 +136,34 @@ async function marcarDisponible(id) {
   return { ...snap.data(), ocupado: false };
 }
 
+async function marcarPausado(id, pausado) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.update({ pausado: !!pausado });
+  return { ...snap.data(), pausado: !!pausado };
+}
+
+async function actualizarServicios(id, serviciosActivos) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.update({ serviciosActivos });
+  return { ...snap.data(), serviciosActivos };
+}
+
+async function actualizarZona(id, zona) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.update({ zona });
+  return { ...snap.data(), zona };
+}
+
 // Conductores que ahora mismo podrían recibir un pedido nuevo, filtrando
-// opcionalmente por tipo de vehículo ('moto' | 'carro' | null = cualquiera).
-async function disponibles(tipoVehiculo) {
+// opcionalmente por tipo de vehículo ('moto' | 'carro' | null = cualquiera)
+// y por tipo de servicio ('carrera' | 'delivery' | null = cualquiera).
+async function disponibles(tipoVehiculo, tipoServicio) {
   const snap = await db
     .collection(COLECCION)
     .where("estadoVerificacion", "==", "aprobado")
@@ -142,10 +173,12 @@ async function disponibles(tipoVehiculo) {
   return todosAprobados.filter(
     (c) =>
       c.enLinea &&
+      !c.pausado &&
       !c.ocupado &&
       c.lat != null &&
       c.lng != null &&
-      (!tipoVehiculo || c.tipoVehiculo === tipoVehiculo)
+      (!tipoVehiculo || c.tipoVehiculo === tipoVehiculo) &&
+      (!tipoServicio || c.serviciosActivos?.[tipoServicio] !== false)
   );
 }
 
@@ -162,6 +195,9 @@ module.exports = {
   obtener,
   actualizarUbicacion,
   marcarEnLinea,
+  marcarPausado,
+  actualizarServicios,
+  actualizarZona,
   marcarOcupado,
   marcarDisponible,
   disponibles,

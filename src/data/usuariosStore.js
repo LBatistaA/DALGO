@@ -45,4 +45,33 @@ async function agregarMoviCoins(id, cantidad) {
   });
 }
 
-module.exports = { registrar, obtener, agregarMoviCoins };
+// Suma una calificación (1-5 estrellas) que el conductor le dio al
+// usuario al terminar el viaje — se guarda como total+cantidad para
+// poder calcular el promedio después.
+async function agregarCalificacion(id, estrellas) {
+  const ref = db.collection(COLECCION).doc(id);
+  return db.runTransaction(async (t) => {
+    const snap = await t.get(ref);
+    const actual = snap.exists
+      ? snap.data()
+      : {
+          id,
+          nombre: null,
+          moviCoins: 0,
+          viajesCompletados: 0,
+          calificacionTotal: 0,
+          calificacionCantidad: 0,
+        };
+
+    const actualizado = {
+      ...actual,
+      calificacionTotal: (actual.calificacionTotal || 0) + estrellas,
+      calificacionCantidad: (actual.calificacionCantidad || 0) + 1,
+    };
+
+    t.set(ref, actualizado, { merge: true });
+    return actualizado;
+  });
+}
+
+module.exports = { registrar, obtener, agregarMoviCoins, agregarCalificacion };

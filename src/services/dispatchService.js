@@ -5,13 +5,14 @@ const CANTIDAD_CANDIDATOS = 10;
 
 /**
  * Busca hasta 10 conductores disponibles más cercanos al cliente, del
- * tipo de vehículo pedido, para notificarles el pedido a todos — el
- * primero que acepte se lo lleva.
+ * tipo de vehículo y tipo de servicio pedidos, para notificarles el
+ * pedido a todos — el primero que acepte se lo lleva.
  * @param {{lat:number, lng:number}} ubicacionCliente
  * @param {"moto"|"carro"|null} tipoVehiculo
+ * @param {"carrera"|"delivery"|null} tipoServicio
  */
-async function buscarCandidatos(ubicacionCliente, tipoVehiculo) {
-  const disponibles = await conductoresStore.disponibles(tipoVehiculo);
+async function buscarCandidatos(ubicacionCliente, tipoVehiculo, tipoServicio) {
+  const disponibles = await conductoresStore.disponibles(tipoVehiculo, tipoServicio);
 
   const conDistancia = disponibles.map((c) => ({
     ...c,
