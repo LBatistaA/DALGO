@@ -4,6 +4,8 @@ const { buscarCandidatos } = require("./services/dispatchService");
 const { distanciaKm } = require("./utils/geo");
 const conductoresStore = require("./data/conductoresStore");
 const pedidosStore = require("./data/pedidosStore");
+const usuariosStore = require("./data/usuariosStore");
+const fareConfig = require("./config/fareConfig");
 
 function leerCuerpo(req) {
   return new Promise((resolve, reject) => {
@@ -71,7 +73,7 @@ const server = http.createServer(async (req, res) => {
     // hasta que alguno de ellos lo acepte.
     if (req.method === "POST" && req.url.startsWith("/pedido") && partes.length === 1) {
       const body = await leerCuerpo(req);
-      const { tipoServicio, subtipo, detalles, origen, destino, tipoVehiculo } = body;
+      const { tipoServicio, subtipo, detalles, origen, destino, tipoVehiculo, usuarioId } = body;
 
       if (!tipoServicio || !origen || !destino) {
         return enviarJSON(res, 400, {
@@ -99,6 +101,7 @@ const server = http.createServer(async (req, res) => {
         tarifa,
         tipoVehiculo: tipoVehiculo || null,
         candidatos: candidatos.map((c) => c.id),
+        usuarioId,
       });
 
       return enviarJSON(res, 200, {
@@ -198,6 +201,34 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { conductor });
     }
 
+    // GET /conductor/:id/resumen
+    // Ganancias de hoy, cuántos servicios completó hoy, y su actividad
+    // más reciente — para la pantalla de Inicio del conductor.
+    if (
+      req.method === "GET" &&
+      partes[0] === "conductor" &&
+      partes[2] === "resumen"
+    ) {
+      const historial = await pedidosStore.obtenerPorConductor(partes[1]);
+      const hoy = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+
+      const completadosHoy = historial.filter(
+        (p) => p.estado === "completado" && p.creadoEn.slice(0, 10) === hoy
+      );
+      const gananciasHoy = completadosHoy.reduce(
+        (suma, p) => suma + (p.tarifa?.tarifa || 0),
+        0
+      );
+
+      return enviarJSON(res, 200, {
+        gananciasHoy: Number(gananciasHoy.toFixed(2)),
+        serviciosCompletadosHoy: completadosHoy.length,
+        actividadReciente: historial
+          .filter((p) => p.estado === "completado")
+          .slice(0, 10),
+      });
+    }
+
     // GET /conductor/:id/pedido-pendiente
     if (
       req.method === "GET" &&
@@ -250,12 +281,50 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { pedido });
     }
 
+    // POST /pedido/:id/iniciar-servicio
+    // El conductor llegó al punto de encuentro — pasa de "confirmado"
+    // (en camino) a "en_servicio" (viaje en curso).
+    if (
+      req.method === "POST" &&
+      partes[0] === "pedido" &&
+      partes[2] === "iniciar-servicio"
+    ) {
+      const pedido = await pedidosStore.actualizarEstado(partes[1], "en_servicio");
+      if (!pedido) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
+      return enviarJSON(res, 200, { pedido });
+    }
+
     // POST /pedido/:id/completar
     if (req.method === "POST" && partes[0] === "pedido" && partes[2] === "completar") {
       const pedido = await pedidosStore.actualizarEstado(partes[1], "completado");
       if (!pedido) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
       await conductoresStore.marcarDisponible(pedido.conductorId);
-      return enviarJSON(res, 200, { pedido });
+
+      let usuario = null;
+      if (pedido.usuarioId) {
+        usuario = await usuariosStore.agregarMoviCoins(
+          pedido.usuarioId,
+          fareConfig.moviCoinsPorViaje
+        );
+      }
+
+      return enviarJSON(res, 200, { pedido, usuario });
+    }
+
+    // POST /usuario/registrar
+    if (req.method === "POST" && req.url === "/usuario/registrar") {
+      const body = await leerCuerpo(req);
+      const { id, nombre } = body;
+      if (!id) return enviarJSON(res, 400, { error: "Falta id" });
+      const usuario = await usuariosStore.registrar({ id, nombre });
+      return enviarJSON(res, 200, { usuario });
+    }
+
+    // GET /usuario/:id
+    if (req.method === "GET" && partes[0] === "usuario" && partes.length === 2) {
+      const usuario = await usuariosStore.obtener(partes[1]);
+      if (!usuario) return enviarJSON(res, 404, { error: "Usuario no registrado" });
+      return enviarJSON(res, 200, { usuario });
     }
 
     // GET /conductores

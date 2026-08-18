@@ -27,4 +27,7 @@ module.exports = {
     carro: 1,
     moto: 0.7,
   },
+
+  // MoviCoins que gana el usuario cada vez que completa un viaje/entrega
+  moviCoinsPorViaje: 10,
 };

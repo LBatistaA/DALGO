@@ -1,0 +1,48 @@
+const { db } = require("../firebaseAdmin");
+
+const COLECCION = "usuarios";
+
+async function registrar({ id, nombre }) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  const existente = snap.exists ? snap.data() : null;
+
+  const datos = {
+    id,
+    nombre: nombre || (existente ? existente.nombre || null : null),
+    moviCoins: existente ? existente.moviCoins || 0 : 0,
+    viajesCompletados: existente ? existente.viajesCompletados || 0 : 0,
+  };
+
+  await ref.set(datos, { merge: true });
+  return datos;
+}
+
+async function obtener(id) {
+  const snap = await db.collection(COLECCION).doc(id).get();
+  return snap.exists ? snap.data() : null;
+}
+
+// Suma MoviCoins y cuenta un viaje más — se usa cuando un pedido se
+// marca como completado. Con transacción, para que sumas simultáneas
+// no se pisen entre sí.
+async function agregarMoviCoins(id, cantidad) {
+  const ref = db.collection(COLECCION).doc(id);
+  return db.runTransaction(async (t) => {
+    const snap = await t.get(ref);
+    const actual = snap.exists
+      ? snap.data()
+      : { id, nombre: null, moviCoins: 0, viajesCompletados: 0 };
+
+    const actualizado = {
+      ...actual,
+      moviCoins: (actual.moviCoins || 0) + cantidad,
+      viajesCompletados: (actual.viajesCompletados || 0) + 1,
+    };
+
+    t.set(ref, actualizado, { merge: true });
+    return actualizado;
+  });
+}
+
+module.exports = { registrar, obtener, agregarMoviCoins };

@@ -25,6 +25,7 @@ async function crear({
   tarifa,
   tipoVehiculo,
   candidatos,
+  usuarioId,
 }) {
   const id = String(await _siguienteId());
   const pedido = {
@@ -39,6 +40,7 @@ async function crear({
     candidatos: candidatos || [], // IDs de conductores notificados
     descartadoPor: [], // IDs de conductores que lo rechazaron
     conductorId: null, // se llena cuando alguien lo acepta
+    usuarioId: usuarioId || null, // quién pidió el servicio (para MoviCoins)
     // buscando_conductor | confirmado | completado
     estado: "buscando_conductor",
     creadoEn: new Date().toISOString(),
@@ -71,6 +73,19 @@ async function obtenerPendientePorConductor(conductorId) {
     .sort((a, b) => (a.creadoEn < b.creadoEn ? 1 : -1));
 
   return candidatosPara[0] || null;
+}
+
+// Todos los pedidos que ha llevado un conductor (para su historial y
+// para calcular sus ganancias) — más recientes primero.
+async function obtenerPorConductor(conductorId) {
+  const snap = await db
+    .collection(COLECCION)
+    .where("conductorId", "==", conductorId)
+    .get();
+
+  return snap.docs
+    .map((d) => d.data())
+    .sort((a, b) => (a.creadoEn < b.creadoEn ? 1 : -1));
 }
 
 // Un conductor descarta el pedido — deja de vérselo a él, pero sigue
@@ -127,6 +142,7 @@ module.exports = {
   crear,
   obtenerPorId,
   obtenerPendientePorConductor,
+  obtenerPorConductor,
   descartarParaConductor,
   intentarConfirmar,
   actualizarEstado,
