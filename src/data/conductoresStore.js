@@ -18,7 +18,7 @@ async function registrar({ id, nombre, telefono }) {
     placa: existente ? existente.placa || null : null,
     colorVehiculo: existente ? existente.colorVehiculo || null : null,
     tipoVehiculo: existente ? existente.tipoVehiculo || null : null, // 'moto' | 'carro'
-    documentos: existente ? existente.documentos || null : null,
+    tieneDocumentos: existente ? !!existente.tieneDocumentos : false,
     // pendiente | aprobado | rechazado — recién registrado no puede
     // ponerse en línea hasta que se revisen sus documentos
     estadoVerificacion: existente ? existente.estadoVerificacion || "pendiente" : "pendiente",
@@ -45,13 +45,43 @@ async function guardarDocumentos(
     placa,
     colorVehiculo,
     tipoVehiculo,
-    documentos: { licencia, papelesVehiculo, cedula, fotoVehiculo },
+    // Ya no guardamos las fotos aquí (un documento de Firestore no
+    // puede pesar más de 1 MB, y las 4 juntas fácilmente lo superan) —
+    // solo marcamos que existen; cada foto va en su propio documento.
+    tieneDocumentos: true,
     // Cada vez que sube/actualiza documentos, vuelve a quedar pendiente
     // de revisión (por si estaba rechazado y los corrigió).
     estadoVerificacion: "pendiente",
   };
   await ref.update(cambios);
+
+  const docsRef = ref.collection("documentos");
+  await Promise.all([
+    docsRef.doc("licencia").set({ dataUrl: licencia }),
+    docsRef.doc("papelesVehiculo").set({ dataUrl: papelesVehiculo }),
+    docsRef.doc("cedula").set({ dataUrl: cedula }),
+    docsRef.doc("fotoVehiculo").set({ dataUrl: fotoVehiculo }),
+  ]);
+
   return { ...snap.data(), ...cambios };
+}
+
+// Trae las 4 fotos de un conductor (aparte, porque pesan mucho) — para
+// cuando exista una pantalla de revisión de documentos.
+async function obtenerDocumentos(id) {
+  const docsRef = db.collection(COLECCION).doc(id).collection("documentos");
+  const [licencia, papelesVehiculo, cedula, fotoVehiculo] = await Promise.all([
+    docsRef.doc("licencia").get(),
+    docsRef.doc("papelesVehiculo").get(),
+    docsRef.doc("cedula").get(),
+    docsRef.doc("fotoVehiculo").get(),
+  ]);
+  return {
+    licencia: licencia.exists ? licencia.data().dataUrl : null,
+    papelesVehiculo: papelesVehiculo.exists ? papelesVehiculo.data().dataUrl : null,
+    cedula: cedula.exists ? cedula.data().dataUrl : null,
+    fotoVehiculo: fotoVehiculo.exists ? fotoVehiculo.data().dataUrl : null,
+  };
 }
 
 async function actualizarVerificacion(id, estado) {
@@ -127,6 +157,7 @@ async function todos() {
 module.exports = {
   registrar,
   guardarDocumentos,
+  obtenerDocumentos,
   actualizarVerificacion,
   obtener,
   actualizarUbicacion,
