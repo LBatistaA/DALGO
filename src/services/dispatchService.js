@@ -1,39 +1,26 @@
 const { distanciaKm } = require("../utils/geo");
 const conductoresStore = require("../data/conductoresStore");
 
+const CANTIDAD_CANDIDATOS = 10;
+
 /**
- * Encuentra al conductor real disponible más cercano a la ubicación del cliente.
+ * Busca hasta 10 conductores disponibles más cercanos al cliente, del
+ * tipo de vehículo pedido, para notificarles el pedido a todos — el
+ * primero que acepte se lo lleva.
  * @param {{lat:number, lng:number}} ubicacionCliente
+ * @param {"moto"|"carro"|null} tipoVehiculo
  */
-async function asignarConductor(ubicacionCliente) {
-  const disponibles = await conductoresStore.disponibles();
+async function buscarCandidatos(ubicacionCliente, tipoVehiculo) {
+  const disponibles = await conductoresStore.disponibles(tipoVehiculo);
 
-  if (disponibles.length === 0) {
-    return { asignado: false, motivo: "No hay conductores disponibles" };
-  }
+  const conDistancia = disponibles.map((c) => ({
+    ...c,
+    distanciaKm: distanciaKm(ubicacionCliente, { lat: c.lat, lng: c.lng }),
+  }));
 
-  let mejor = null;
-  let mejorDistancia = Infinity;
+  conDistancia.sort((a, b) => a.distanciaKm - b.distanciaKm);
 
-  for (const conductor of disponibles) {
-    const distancia = distanciaKm(ubicacionCliente, {
-      lat: conductor.lat,
-      lng: conductor.lng,
-    });
-    if (distancia < mejorDistancia) {
-      mejorDistancia = distancia;
-      mejor = conductor;
-    }
-  }
-
-  return {
-    asignado: true,
-    conductor: {
-      id: mejor.id,
-      nombre: mejor.nombre,
-      distanciaKm: Number(mejorDistancia.toFixed(2)),
-    },
-  };
+  return conDistancia.slice(0, CANTIDAD_CANDIDATOS);
 }
 
-module.exports = { asignarConductor };
+module.exports = { buscarCandidatos, CANTIDAD_CANDIDATOS };

@@ -16,6 +16,8 @@ async function registrar({ id, nombre, telefono }) {
     lat: existente && existente.lat != null ? existente.lat : null,
     lng: existente && existente.lng != null ? existente.lng : null,
     placa: existente ? existente.placa || null : null,
+    colorVehiculo: existente ? existente.colorVehiculo || null : null,
+    tipoVehiculo: existente ? existente.tipoVehiculo || null : null, // 'moto' | 'carro'
     documentos: existente ? existente.documentos || null : null,
     // pendiente | aprobado | rechazado — recién registrado no puede
     // ponerse en línea hasta que se revisen sus documentos
@@ -31,13 +33,18 @@ async function obtener(id) {
   return snap.exists ? snap.data() : null;
 }
 
-async function guardarDocumentos(id, { placa, licencia, papelesVehiculo, cedula, fotoVehiculo }) {
+async function guardarDocumentos(
+  id,
+  { placa, colorVehiculo, tipoVehiculo, licencia, papelesVehiculo, cedula, fotoVehiculo }
+) {
   const ref = db.collection(COLECCION).doc(id);
   const snap = await ref.get();
   if (!snap.exists) return null;
 
   const cambios = {
     placa,
+    colorVehiculo,
+    tipoVehiculo,
     documentos: { licencia, papelesVehiculo, cedula, fotoVehiculo },
     // Cada vez que sube/actualiza documentos, vuelve a quedar pendiente
     // de revisión (por si estaba rechazado y los corrigió).
@@ -69,8 +76,6 @@ async function marcarEnLinea(id, enLinea) {
   if (!snap.exists) return null;
   const actual = snap.data();
 
-  // Un conductor no verificado no puede ponerse en línea, sin importar
-  // qué le mande la app (protección también del lado del servidor).
   if (enLinea && actual.estadoVerificacion !== "aprobado") {
     return { ...actual, _bloqueado: true };
   }
@@ -95,11 +100,9 @@ async function marcarDisponible(id) {
   return { ...snap.data(), ocupado: false };
 }
 
-// Conductores que ahora mismo podrían recibir un pedido nuevo.
-// Filtramos en Firestore solo por estadoVerificacion (así no hace falta
-// crear un índice compuesto); el resto de condiciones se filtran aquí,
-// que con pocos conductores es rápido y simple.
-async function disponibles() {
+// Conductores que ahora mismo podrían recibir un pedido nuevo, filtrando
+// opcionalmente por tipo de vehículo ('moto' | 'carro' | null = cualquiera).
+async function disponibles(tipoVehiculo) {
   const snap = await db
     .collection(COLECCION)
     .where("estadoVerificacion", "==", "aprobado")
@@ -107,7 +110,12 @@ async function disponibles() {
 
   const todosAprobados = snap.docs.map((d) => d.data());
   return todosAprobados.filter(
-    (c) => c.enLinea && !c.ocupado && c.lat != null && c.lng != null
+    (c) =>
+      c.enLinea &&
+      !c.ocupado &&
+      c.lat != null &&
+      c.lng != null &&
+      (!tipoVehiculo || c.tipoVehiculo === tipoVehiculo)
   );
 }
 
