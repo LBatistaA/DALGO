@@ -6,8 +6,9 @@ const { distanciaKm } = require("../utils/geo");
  * @param {"delivery"|"carrera"} tipoServicio
  * @param {{lat:number, lng:number}} origen
  * @param {{lat:number, lng:number}} destino
+ * @param {"carro"|"moto"|null} tipoVehiculo — solo aplica a "carrera"
  */
-function calcularTarifa(tipoServicio, origen, destino) {
+function calcularTarifa(tipoServicio, origen, destino, tipoVehiculo) {
   const config = fareConfig[tipoServicio];
   if (!config) {
     throw new Error(
@@ -19,15 +20,22 @@ function calcularTarifa(tipoServicio, origen, destino) {
   const tiempoEstimadoMin =
     (distancia / fareConfig.velocidadPromedioKmh) * 60;
 
-  const tarifaCalculada =
+  let tarifaCalculada =
     config.tarifaBase +
     distancia * config.costoPorKm +
     tiempoEstimadoMin * config.costoPorMinuto;
+
+  const multiplicador =
+    tipoVehiculo && fareConfig.multiplicadorPorVehiculo[tipoVehiculo] != null
+      ? fareConfig.multiplicadorPorVehiculo[tipoVehiculo]
+      : 1;
+  tarifaCalculada *= multiplicador;
 
   const tarifaFinal = Math.max(tarifaCalculada, fareConfig.tarifaMinima);
 
   return {
     tipoServicio,
+    tipoVehiculo: tipoVehiculo || null,
     distanciaKm: Number(distancia.toFixed(2)),
     tiempoEstimadoMin: Number(tiempoEstimadoMin.toFixed(1)),
     tarifa: Number(tarifaFinal.toFixed(2)),

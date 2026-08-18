@@ -50,6 +50,21 @@ const server = http.createServer(async (req, res) => {
   const partes = segmentos(req.url);
 
   try {
+    // POST /cotizar
+    // Calcula el precio para "carro" y "moto" a la vez, SIN buscar
+    // conductor todavía — para mostrar ambas opciones con su precio
+    // antes de que el usuario elija y pida.
+    if (req.method === "POST" && req.url === "/cotizar") {
+      const body = await leerCuerpo(req);
+      const { origen, destino } = body;
+      if (!origen || !destino) {
+        return enviarJSON(res, 400, { error: "Faltan datos: origen y destino son requeridos" });
+      }
+      const carro = calcularTarifa("carrera", origen, destino, "carro");
+      const moto = calcularTarifa("carrera", origen, destino, "moto");
+      return enviarJSON(res, 200, { carro, moto });
+    }
+
     // POST /pedido
     // Calcula tarifa y busca hasta 10 conductores candidatos cercanos
     // del tipo de vehículo pedido — el pedido queda "buscando_conductor"
@@ -64,7 +79,7 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      const tarifa = calcularTarifa(tipoServicio, origen, destino);
+      const tarifa = calcularTarifa(tipoServicio, origen, destino, tipoVehiculo);
       const candidatos = await buscarCandidatos(origen, tipoVehiculo || null);
 
       if (candidatos.length === 0) {

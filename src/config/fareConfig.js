@@ -21,4 +21,10 @@ module.exports = {
 
   // Tarifa mínima, por si el cálculo da un monto muy bajo en trayectos cortos
   tarifaMinima: 1.5,
+
+  // La moto cuesta menos que el carro para el mismo trayecto (ajustable)
+  multiplicadorPorVehiculo: {
+    carro: 1,
+    moto: 0.7,
+  },
 };
