@@ -25,6 +25,9 @@ async function registrar({ id, nombre, telefono }) {
       ? existente.serviciosActivos || { carrera: true, delivery: true }
       : { carrera: true, delivery: true },
     tieneDocumentos: existente ? !!existente.tieneDocumentos : false,
+    tieneFotoPerfil: existente ? !!existente.tieneFotoPerfil : false,
+    calificacionTotal: existente ? existente.calificacionTotal || 0 : 0,
+    calificacionCantidad: existente ? existente.calificacionCantidad || 0 : 0,
     // pendiente | aprobado | rechazado — recién registrado no puede
     // ponerse en línea hasta que se revisen sus documentos
     estadoVerificacion: existente ? existente.estadoVerificacion || "pendiente" : "pendiente",
@@ -187,11 +190,53 @@ async function todos() {
   return snap.docs.map((d) => d.data());
 }
 
+// Suma una calificación (1-5) que el usuario le da al conductor al
+// terminar el viaje.
+async function agregarCalificacion(id, estrellas) {
+  const ref = db.collection(COLECCION).doc(id);
+  return db.runTransaction(async (t) => {
+    const snap = await t.get(ref);
+    if (!snap.exists) return null;
+    const actual = snap.data();
+    const actualizado = {
+      calificacionTotal: (actual.calificacionTotal || 0) + estrellas,
+      calificacionCantidad: (actual.calificacionCantidad || 0) + 1,
+    };
+    t.update(ref, actualizado);
+    return { ...actual, ...actualizado };
+  });
+}
+
+// La foto de perfil se guarda aparte (mismo motivo que los documentos:
+// el límite de 1 MB por documento de Firestore) — solo marcamos que
+// existe en el registro principal del conductor.
+async function guardarFotoPerfil(id, fotoDataUrl) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.collection("documentos").doc("fotoPerfil").set({ dataUrl: fotoDataUrl });
+  await ref.update({ tieneFotoPerfil: true });
+  return { ...snap.data(), tieneFotoPerfil: true };
+}
+
+async function obtenerFotoPerfil(id) {
+  const doc = await db
+    .collection(COLECCION)
+    .doc(id)
+    .collection("documentos")
+    .doc("fotoPerfil")
+    .get();
+  return doc.exists ? doc.data().dataUrl : null;
+}
+
 module.exports = {
   registrar,
   guardarDocumentos,
   obtenerDocumentos,
+  guardarFotoPerfil,
+  obtenerFotoPerfil,
   actualizarVerificacion,
+  agregarCalificacion,
   obtener,
   actualizarUbicacion,
   marcarEnLinea,

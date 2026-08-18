@@ -45,6 +45,11 @@ function infoPublicaConductor(c) {
     placa: c.placa,
     colorVehiculo: c.colorVehiculo,
     tipoVehiculo: c.tipoVehiculo,
+    tieneFotoPerfil: !!c.tieneFotoPerfil,
+    calificacionPromedio:
+      c.calificacionCantidad > 0
+        ? Number((c.calificacionTotal / c.calificacionCantidad).toFixed(1))
+        : null,
   };
 }
 
@@ -388,6 +393,52 @@ const server = http.createServer(async (req, res) => {
       });
       if (!conductor) return enviarJSON(res, 404, { error: "Conductor no registrado" });
       return enviarJSON(res, 200, { conductor });
+    }
+
+    // POST /pedido/:id/calificar-conductor  { estrellas: 1-5 }
+    // El usuario califica al conductor, después de que el viaje se
+    // completó (distinto del rating que el conductor le da al usuario).
+    if (
+      req.method === "POST" &&
+      partes[0] === "pedido" &&
+      partes[2] === "calificar-conductor"
+    ) {
+      const body = await leerCuerpo(req);
+      const pedido = await pedidosStore.obtenerPorId(partes[1]);
+      if (!pedido) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
+      if (!pedido.conductorId) {
+        return enviarJSON(res, 400, { error: "Este pedido no tiene conductor asignado" });
+      }
+      const conductor = await conductoresStore.agregarCalificacion(
+        pedido.conductorId,
+        Number(body.estrellas)
+      );
+      return enviarJSON(res, 200, { conductor });
+    }
+
+    // POST /conductor/:id/foto-perfil  { fotoPerfil: "data:image/..." }
+    if (
+      req.method === "POST" &&
+      partes[0] === "conductor" &&
+      partes[2] === "foto-perfil"
+    ) {
+      const body = await leerCuerpo(req);
+      const conductor = await conductoresStore.guardarFotoPerfil(
+        partes[1],
+        body.fotoPerfil
+      );
+      if (!conductor) return enviarJSON(res, 404, { error: "Conductor no registrado" });
+      return enviarJSON(res, 200, { conductor });
+    }
+
+    // GET /conductor/:id/foto-perfil
+    if (
+      req.method === "GET" &&
+      partes[0] === "conductor" &&
+      partes[2] === "foto-perfil"
+    ) {
+      const fotoPerfil = await conductoresStore.obtenerFotoPerfil(partes[1]);
+      return enviarJSON(res, 200, { fotoPerfil });
     }
 
     // POST /conductor/:id/zona  { zona: "Maracay, Aragua" }
