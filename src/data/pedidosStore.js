@@ -58,12 +58,21 @@ async function obtenerPorId(id) {
 // está en su lista de candidatos, todavía nadie lo ha aceptado, y él
 // mismo no lo ha descartado antes.
 async function obtenerPendientePorConductor(conductorId) {
+  const candidatosPara = await obtenerPendientesPorConductor(conductorId);
+  return candidatosPara[0] || null;
+}
+
+// Igual que la anterior, pero devuelve TODOS los pedidos donde el
+// conductor es candidato — un mismo conductor puede ser candidato de
+// varios pedidos a la vez (hasta 10 candidatos por pedido), así que
+// mostrarle solo "el más reciente" escondería los demás.
+async function obtenerPendientesPorConductor(conductorId) {
   const snap = await db
     .collection(COLECCION)
     .where("estado", "==", "buscando_conductor")
     .get();
 
-  const candidatosPara = snap.docs
+  return snap.docs
     .map((d) => d.data())
     .filter(
       (p) =>
@@ -71,8 +80,6 @@ async function obtenerPendientePorConductor(conductorId) {
         !(p.descartadoPor || []).includes(conductorId)
     )
     .sort((a, b) => (a.creadoEn < b.creadoEn ? 1 : -1));
-
-  return candidatosPara[0] || null;
 }
 
 // Todos los pedidos que ha llevado un conductor (para su historial y
@@ -142,6 +149,7 @@ module.exports = {
   crear,
   obtenerPorId,
   obtenerPendientePorConductor,
+  obtenerPendientesPorConductor,
   obtenerPorConductor,
   descartarParaConductor,
   intentarConfirmar,

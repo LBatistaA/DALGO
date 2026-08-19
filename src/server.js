@@ -290,6 +290,17 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { pedido });
     }
 
+    // GET /conductor/:id/pedidos-pendientes — TODOS los pedidos donde
+    // este conductor es candidato (puede ser más de uno a la vez)
+    if (
+      req.method === "GET" &&
+      partes[0] === "conductor" &&
+      partes[2] === "pedidos-pendientes"
+    ) {
+      const pedidos = await pedidosStore.obtenerPendientesPorConductor(partes[1]);
+      return enviarJSON(res, 200, { pedidos });
+    }
+
     // POST /pedido/:id/confirmar/:conductorId
     // El conductor intenta aceptar. Si otro ya se lo ganó, se lo decimos.
     if (
