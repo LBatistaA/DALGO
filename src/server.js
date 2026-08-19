@@ -465,6 +465,28 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { usuario });
     }
 
+    // GET /tasa-bcv — tasa oficial del dólar (BCV), para mostrar el
+    // total también en bolívares en el resumen del viaje.
+    if (req.method === "GET" && req.url === "/tasa-bcv") {
+      try {
+        const respuesta = await fetch("https://bcv.today/api/v1/rate.json");
+        const datos = await respuesta.json();
+        return enviarJSON(res, 200, {
+          tasa: datos.USD,
+          fecha: datos.effective_date || datos.date || null,
+        });
+      } catch (err) {
+        // Si la fuente externa falla, devolvemos un valor de respaldo
+        // fijo — así el resumen del viaje nunca se rompe por esto.
+        // Actualízalo de vez en cuando si queda muy desfasado.
+        return enviarJSON(res, 200, {
+          tasa: 773.31,
+          fecha: null,
+          respaldo: true,
+        });
+      }
+    }
+
     // GET /conductores
     if (req.method === "GET" && req.url === "/conductores") {
       return enviarJSON(res, 200, await conductoresStore.todos());
