@@ -6,6 +6,7 @@ const conductoresStore = require("./data/conductoresStore");
 const pedidosStore = require("./data/pedidosStore");
 const usuariosStore = require("./data/usuariosStore");
 const fareConfig = require("./config/fareConfig");
+const { auth } = require("./firebaseAdmin");
 
 function leerCuerpo(req) {
   return new Promise((resolve, reject) => {
@@ -33,6 +34,42 @@ function segmentos(url) {
 function query(url) {
   const idx = url.indexOf("?");
   return idx === -1 ? {} : Object.fromEntries(new URLSearchParams(url.slice(idx + 1)));
+}
+
+// Verifica el token de Firebase que manda el cliente en el encabezado
+// "Authorization: Bearer <token>". Si es válido, devuelve el uid REAL
+// del usuario autenticado — nunca hay que confiar en un id que venga
+// suelto en la URL o en el body, porque cualquiera podría inventarlo.
+async function verificarToken(req) {
+  const encabezado = req.headers["authorization"] || req.headers["Authorization"];
+  if (!encabezado || !encabezado.startsWith("Bearer ")) return null;
+  const idToken = encabezado.slice(7).trim();
+  if (!idToken) return null;
+  try {
+    const decodificado = await auth.verifyIdToken(idToken);
+    return decodificado.uid;
+  } catch (err) {
+    return null;
+  }
+}
+
+// Para las pocas rutas de administrador (aprobar conductores, ver todo
+// el sistema) — mientras no exista un sistema de roles de verdad, se
+// protegen con una clave secreta aparte del login normal. Hay que
+// configurar ADMIN_SECRET como variable de entorno en Render.
+function esAdmin(req) {
+  const secreto = process.env.ADMIN_SECRET;
+  if (!secreto) return false; // sin la variable configurada, nadie pasa
+  const recibido = req.headers["x-admin-secret"] || req.headers["X-Admin-Secret"];
+  return recibido === secreto;
+}
+
+function noAutorizado(res, mensaje) {
+  enviarJSON(res, 401, { error: mensaje || "No autorizado — falta iniciar sesión" });
+}
+
+function prohibido(res, mensaje) {
+  enviarJSON(res, 403, { error: mensaje || "No tienes permiso para hacer esto" });
 }
 
 // Solo los datos públicos del conductor — nunca sus documentos completos
@@ -68,10 +105,9 @@ const server = http.createServer(async (req, res) => {
 
   try {
     // POST /cotizar
-    // Calcula el precio para "carro" y "moto" a la vez, SIN buscar
-    // conductor todavía — para mostrar ambas opciones con su precio
-    // antes de que el usuario elija y pida.
     if (req.method === "POST" && req.url === "/cotizar") {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
       const body = await leerCuerpo(req);
       const { origen, destino } = body;
       if (!origen || !destino) {
@@ -87,6 +123,8 @@ const server = http.createServer(async (req, res) => {
     // del tipo de vehículo pedido — el pedido queda "buscando_conductor"
     // hasta que alguno de ellos lo acepte.
     if (req.method === "POST" && req.url.startsWith("/pedido") && partes.length === 1) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
       const body = await leerCuerpo(req);
       const { tipoServicio, subtipo, detalles, origen, destino, tipoVehiculo, usuarioId } = body;
 
@@ -94,6 +132,9 @@ const server = http.createServer(async (req, res) => {
         return enviarJSON(res, 400, {
           error: "Faltan datos: tipoServicio, origen y destino son requeridos",
         });
+      }
+      if (usuarioId && usuarioId !== uid) {
+        return prohibido(res, "No puedes crear un pedido a nombre de otro usuario");
       }
 
       const tarifa = calcularTarifa(tipoServicio, origen, destino, tipoVehiculo);
@@ -116,7 +157,7 @@ const server = http.createServer(async (req, res) => {
         tarifa,
         tipoVehiculo: tipoVehiculo || null,
         candidatos: candidatos.map((c) => c.id),
-        usuarioId,
+        usuarioId: usuarioId || uid,
       });
 
       return enviarJSON(res, 200, {
@@ -126,10 +167,13 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // GET /pedido/:id — estado actual, datos públicos del conductor (si
-    // ya hay uno asignado) con su ubicación en vivo y minutos estimados,
-    // y datos públicos del usuario (para que el conductor los vea).
+    // GET /pedido/:id — cualquiera de los involucrados puede consultarlo;
+    // basta con estar autenticado (no hace falta ser específicamente uno
+    // de los dos, porque un conductor candidato también necesita verlo
+    // antes de aceptar).
     if (req.method === "GET" && partes[0] === "pedido" && partes.length === 2) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
       const pedido = await pedidosStore.obtenerPorId(partes[1]);
       if (!pedido) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
 
@@ -156,9 +200,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     // GET /conductores/cercanos?lat=&lng=&tipoVehiculo=
-    // Lista liviana (id, ubicación, tipo) para mostrar en el mapa del
-    // cliente los conductores disponibles cerca, antes de pedir.
     if (req.method === "GET" && req.url.startsWith("/conductores/cercanos")) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
       const q = query(req.url);
       const lat = parseFloat(q.lat);
       const lng = parseFloat(q.lng);
@@ -176,19 +220,27 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, lista);
     }
 
-    // POST /conductor/registrar
+    // POST /conductor/registrar — solo puede registrar su propio perfil
     if (req.method === "POST" && req.url === "/conductor/registrar") {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
       const body = await leerCuerpo(req);
       const { id, nombre, telefono } = body;
       if (!id || !nombre) {
         return enviarJSON(res, 400, { error: "Faltan datos: id y nombre son requeridos" });
       }
+      if (id !== uid) {
+        return prohibido(res, "No puedes registrar un perfil que no es el tuyo");
+      }
       const conductor = await conductoresStore.registrar({ id, nombre, telefono });
       return enviarJSON(res, 200, { conductor });
     }
 
-    // POST /conductor/:id/ubicacion
+    // POST /conductor/:id/ubicacion — solo el conductor mismo
     if (req.method === "POST" && partes[0] === "conductor" && partes[2] === "ubicacion") {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
       const body = await leerCuerpo(req);
       const { lat, lng } = body;
       const conductor = await conductoresStore.actualizarUbicacion(partes[1], lat, lng);
@@ -196,8 +248,11 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { conductor });
     }
 
-    // POST /conductor/:id/estado
+    // POST /conductor/:id/estado — solo el conductor mismo
     if (req.method === "POST" && partes[0] === "conductor" && partes[2] === "estado") {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
       const body = await leerCuerpo(req);
       const conductor = await conductoresStore.marcarEnLinea(partes[1], !!body.enLinea);
       if (!conductor) return enviarJSON(res, 404, { error: "Conductor no registrado" });
@@ -209,16 +264,22 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { conductor });
     }
 
-    // POST /conductor/:id/documentos
+    // POST /conductor/:id/documentos — solo el conductor mismo
     if (req.method === "POST" && partes[0] === "conductor" && partes[2] === "documentos") {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
       const body = await leerCuerpo(req);
       const conductor = await conductoresStore.guardarDocumentos(partes[1], body);
       if (!conductor) return enviarJSON(res, 404, { error: "Conductor no registrado" });
       return enviarJSON(res, 200, { conductor });
     }
 
-    // POST /conductor/:id/verificar
+    // POST /conductor/:id/verificar — SOLO administrador. Aprobar o
+    // rechazar documentos no es algo que el propio conductor deba poder
+    // hacerse a sí mismo.
     if (req.method === "POST" && partes[0] === "conductor" && partes[2] === "verificar") {
+      if (!esAdmin(req)) return prohibido(res, "Solo un administrador puede hacer esto");
       const body = await leerCuerpo(req);
       const estado = body.aprobado ? "aprobado" : "rechazado";
       const conductor = await conductoresStore.actualizarVerificacion(partes[1], estado);
@@ -226,21 +287,29 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { conductor });
     }
 
-    // GET /conductor/:id
+    // GET /conductor/:id — datos completos si es él mismo consultando,
+    // solo los públicos si es cualquier otro (ej. un usuario viendo a su
+    // conductor ya asignado)
     if (req.method === "GET" && partes[0] === "conductor" && partes.length === 2) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
       const conductor = await conductoresStore.obtener(partes[1]);
       if (!conductor) return enviarJSON(res, 404, { error: "Conductor no registrado" });
-      return enviarJSON(res, 200, { conductor });
+      if (uid === partes[1]) {
+        return enviarJSON(res, 200, { conductor });
+      }
+      return enviarJSON(res, 200, { conductor: infoPublicaConductor(conductor) });
     }
 
-    // GET /conductor/:id/resumen
-    // Ganancias de hoy, cuántos servicios completó hoy, y su actividad
-    // más reciente — para la pantalla de Inicio del conductor.
+    // GET /conductor/:id/resumen — privado, solo el conductor mismo
     if (
       req.method === "GET" &&
       partes[0] === "conductor" &&
       partes[2] === "resumen"
     ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
       const historial = await pedidosStore.obtenerPorConductor(partes[1]);
       const hoy = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
 
@@ -261,24 +330,28 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // GET /conductor/:id/historial — todos sus pedidos, para la
-    // pantalla "Mis viajes"
+    // GET /conductor/:id/historial — privado, solo el conductor mismo
     if (
       req.method === "GET" &&
       partes[0] === "conductor" &&
       partes[2] === "historial"
     ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
       const historial = await pedidosStore.obtenerPorConductor(partes[1]);
       return enviarJSON(res, 200, { historial });
     }
 
-    // GET /conductor/:id/ganancias — totales de hoy, esta semana y este
-    // mes, para la pantalla "Ganancias"
+    // GET /conductor/:id/ganancias — privado, solo el conductor mismo
     if (
       req.method === "GET" &&
       partes[0] === "conductor" &&
       partes[2] === "ganancias"
     ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
       const historial = await pedidosStore.obtenerPorConductor(partes[1]);
       const completados = historial.filter((p) => p.estado === "completado");
 
@@ -307,50 +380,60 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // GET /conductor/:id/viaje-activo — si tiene un viaje ya aceptado
-    // sin terminar (confirmado o en_servicio). Se consulta al abrir la
-    // app, para retomarlo si se cerró a la mitad de un viaje.
+    // GET /conductor/:id/viaje-activo — privado, solo el conductor mismo
     if (
       req.method === "GET" &&
       partes[0] === "conductor" &&
       partes[2] === "viaje-activo"
     ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
       const pedido = await pedidosStore.obtenerViajeActivoPorConductor(partes[1]);
       return enviarJSON(res, 200, { pedido });
     }
 
-    // GET /conductor/:id/pedido-pendiente
+    // GET /conductor/:id/pedido-pendiente — privado, solo el conductor mismo
     if (
       req.method === "GET" &&
       partes[0] === "conductor" &&
       partes[2] === "pedido-pendiente"
     ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
       const pedido = await pedidosStore.obtenerPendientePorConductor(partes[1]);
       return enviarJSON(res, 200, { pedido });
     }
 
-    // GET /conductor/:id/pedidos-pendientes — TODOS los pedidos donde
-    // este conductor es candidato (puede ser más de uno a la vez)
+    // GET /conductor/:id/pedidos-pendientes — privado, solo el conductor mismo
     if (
       req.method === "GET" &&
       partes[0] === "conductor" &&
       partes[2] === "pedidos-pendientes"
     ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
       const pedidos = await pedidosStore.obtenerPendientesPorConductor(partes[1]);
       return enviarJSON(res, 200, { pedidos });
     }
 
     // POST /pedido/:id/confirmar/:conductorId
-    // El conductor intenta aceptar. Si otro ya se lo ganó, se lo decimos.
+    // El conductor intenta aceptar — solo puede hacerlo en su propio
+    // nombre, verificado con su token, no con lo que diga la URL.
     if (
       req.method === "POST" &&
       partes[0] === "pedido" &&
       partes[2] === "confirmar"
     ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
       const conductorId = partes[3];
       if (!conductorId) {
         return enviarJSON(res, 400, { error: "Falta el ID del conductor en la ruta" });
       }
+      if (uid !== conductorId) return prohibido(res);
       const resultado = await pedidosStore.intentarConfirmar(partes[1], conductorId);
       if (!resultado.exito) {
         return enviarJSON(res, 409, {
@@ -365,43 +448,51 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { pedido: resultado.pedido });
     }
 
-    // POST /pedido/:id/rechazar/:conductorId
-    // Este conductor específico descarta el pedido — sigue disponible
-    // para los demás candidatos.
+    // POST /pedido/:id/rechazar/:conductorId — mismo criterio
     if (
       req.method === "POST" &&
       partes[0] === "pedido" &&
       partes[2] === "rechazar"
     ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
       const conductorId = partes[3];
       if (!conductorId) {
         return enviarJSON(res, 400, { error: "Falta el ID del conductor en la ruta" });
       }
+      if (uid !== conductorId) return prohibido(res);
       const pedido = await pedidosStore.descartarParaConductor(partes[1], conductorId);
       if (!pedido) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
       return enviarJSON(res, 200, { pedido });
     }
 
-    // POST /pedido/:id/iniciar-servicio
-    // El conductor llegó al punto de encuentro — pasa de "confirmado"
-    // (en camino) a "en_servicio" (viaje en curso).
+    // POST /pedido/:id/iniciar-servicio — solo el conductor YA asignado
+    // a este pedido específico (se verifica contra el pedido guardado,
+    // no contra nada que mande el cliente)
     if (
       req.method === "POST" &&
       partes[0] === "pedido" &&
       partes[2] === "iniciar-servicio"
     ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      const pedidoActual = await pedidosStore.obtenerPorId(partes[1]);
+      if (!pedidoActual) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
+      if (pedidoActual.conductorId !== uid) return prohibido(res);
       const pedido = await pedidosStore.actualizarEstado(partes[1], "en_servicio");
-      if (!pedido) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
       return enviarJSON(res, 200, { pedido });
     }
 
-    // POST /pedido/:id/completar
-    // El body puede incluir { estrellas: 1-5 } — la calificación que el
-    // conductor le da al usuario.
+    // POST /pedido/:id/completar — solo el conductor YA asignado
     if (req.method === "POST" && partes[0] === "pedido" && partes[2] === "completar") {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      const pedidoActual = await pedidosStore.obtenerPorId(partes[1]);
+      if (!pedidoActual) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
+      if (pedidoActual.conductorId !== uid) return prohibido(res);
+
       const body = await leerCuerpo(req);
       const pedido = await pedidosStore.actualizarEstado(partes[1], "completado");
-      if (!pedido) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
       await conductoresStore.marcarDisponible(pedido.conductorId);
 
       let usuario = null;
@@ -421,21 +512,26 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { pedido, usuario });
     }
 
-    // POST /conductor/:id/pausa  { pausado: true|false }
-    // "Descansando" — sigue en línea pero no le llegan pedidos nuevos.
+    // POST /conductor/:id/pausa — solo el conductor mismo
     if (req.method === "POST" && partes[0] === "conductor" && partes[2] === "pausa") {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
       const body = await leerCuerpo(req);
       const conductor = await conductoresStore.marcarPausado(partes[1], !!body.pausado);
       if (!conductor) return enviarJSON(res, 404, { error: "Conductor no registrado" });
       return enviarJSON(res, 200, { conductor });
     }
 
-    // POST /conductor/:id/servicios  { carrera: true|false, delivery: true|false }
+    // POST /conductor/:id/servicios — solo el conductor mismo
     if (
       req.method === "POST" &&
       partes[0] === "conductor" &&
       partes[2] === "servicios"
     ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
       const body = await leerCuerpo(req);
       const conductor = await conductoresStore.actualizarServicios(partes[1], {
         carrera: body.carrera !== false,
@@ -446,16 +542,18 @@ const server = http.createServer(async (req, res) => {
     }
 
     // POST /pedido/:id/calificar-conductor  { estrellas: 1-5 }
-    // El usuario califica al conductor, después de que el viaje se
-    // completó (distinto del rating que el conductor le da al usuario).
+    // Solo el usuario dueño de ESE pedido puede calificar a su conductor
     if (
       req.method === "POST" &&
       partes[0] === "pedido" &&
       partes[2] === "calificar-conductor"
     ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
       const body = await leerCuerpo(req);
       const pedido = await pedidosStore.obtenerPorId(partes[1]);
       if (!pedido) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
+      if (pedido.usuarioId !== uid) return prohibido(res);
       if (!pedido.conductorId) {
         return enviarJSON(res, 400, { error: "Este pedido no tiene conductor asignado" });
       }
@@ -466,12 +564,15 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { conductor });
     }
 
-    // POST /conductor/:id/foto-perfil  { fotoPerfil: "data:image/..." }
+    // POST /conductor/:id/foto-perfil — solo el conductor mismo
     if (
       req.method === "POST" &&
       partes[0] === "conductor" &&
       partes[2] === "foto-perfil"
     ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
       const body = await leerCuerpo(req);
       const conductor = await conductoresStore.guardarFotoPerfil(
         partes[1],
@@ -481,75 +582,99 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { conductor });
     }
 
-    // GET /conductor/:id/foto-perfil
+    // GET /conductor/:id/foto-perfil — cualquier autenticado, porque el
+    // usuario asignado también necesita verla, no solo el conductor
     if (
       req.method === "GET" &&
       partes[0] === "conductor" &&
       partes[2] === "foto-perfil"
     ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
       const fotoPerfil = await conductoresStore.obtenerFotoPerfil(partes[1]);
       return enviarJSON(res, 200, { fotoPerfil });
     }
 
-    // POST /conductor/:id/zona  { zona: "Maracay, Aragua" }
+    // POST /conductor/:id/zona — solo el conductor mismo
     if (req.method === "POST" && partes[0] === "conductor" && partes[2] === "zona") {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
       const body = await leerCuerpo(req);
       const conductor = await conductoresStore.actualizarZona(partes[1], body.zona || null);
       if (!conductor) return enviarJSON(res, 404, { error: "Conductor no registrado" });
       return enviarJSON(res, 200, { conductor });
     }
 
-    // POST /usuario/registrar
+    // POST /usuario/registrar — solo puede registrar su propio perfil
     if (req.method === "POST" && req.url === "/usuario/registrar") {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
       const body = await leerCuerpo(req);
       const { id, nombre, telefono } = body;
       if (!id) return enviarJSON(res, 400, { error: "Falta id" });
+      if (id !== uid) {
+        return prohibido(res, "No puedes registrar un perfil que no es el tuyo");
+      }
       const usuario = await usuariosStore.registrar({ id, nombre, telefono });
       return enviarJSON(res, 200, { usuario });
     }
 
-    // POST /usuario/:id/foto-perfil  { fotoPerfil: "data:image/..." }
+    // POST /usuario/:id/foto-perfil — solo el usuario mismo
     if (
       req.method === "POST" &&
       partes[0] === "usuario" &&
       partes[2] === "foto-perfil"
     ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
       const body = await leerCuerpo(req);
       const usuario = await usuariosStore.guardarFotoPerfil(partes[1], body.fotoPerfil);
       if (!usuario) return enviarJSON(res, 404, { error: "Usuario no registrado" });
       return enviarJSON(res, 200, { usuario });
     }
 
-    // GET /usuario/:id/foto-perfil
+    // GET /usuario/:id/foto-perfil — cualquier autenticado, porque el
+    // conductor asignado también necesita verla
     if (
       req.method === "GET" &&
       partes[0] === "usuario" &&
       partes[2] === "foto-perfil"
     ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
       const fotoPerfil = await usuariosStore.obtenerFotoPerfil(partes[1]);
       return enviarJSON(res, 200, { fotoPerfil });
     }
 
-    // GET /usuario/:id
+    // GET /usuario/:id — completo si es él mismo, solo lo público si es
+    // cualquier otro (ej. un conductor viendo a su pasajero asignado)
     if (req.method === "GET" && partes[0] === "usuario" && partes.length === 2) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
       const usuario = await usuariosStore.obtener(partes[1]);
       if (!usuario) return enviarJSON(res, 404, { error: "Usuario no registrado" });
-      return enviarJSON(res, 200, { usuario });
+      if (uid === partes[1]) {
+        return enviarJSON(res, 200, { usuario });
+      }
+      return enviarJSON(res, 200, { usuario: infoPublicaUsuario(usuario) });
     }
 
-    // GET /usuario/:id/historial — todos sus pedidos, para su pantalla
-    // "Mis viajes"
+    // GET /usuario/:id/historial — privado, solo el usuario mismo
     if (
       req.method === "GET" &&
       partes[0] === "usuario" &&
       partes[2] === "historial"
     ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
       const historial = await pedidosStore.obtenerPorUsuario(partes[1]);
       return enviarJSON(res, 200, { historial });
     }
 
-    // GET /tasa-bcv — tasa oficial del dólar (BCV), para mostrar el
-    // total también en bolívares en el resumen del viaje.
+    // GET /tasa-bcv — no expone datos privados de nadie, se deja abierta
     if (req.method === "GET" && req.url === "/tasa-bcv") {
       try {
         const respuesta = await fetch("https://bcv.today/api/v1/rate.json");
@@ -559,9 +684,6 @@ const server = http.createServer(async (req, res) => {
           fecha: datos.effective_date || datos.date || null,
         });
       } catch (err) {
-        // Si la fuente externa falla, devolvemos un valor de respaldo
-        // fijo — así el resumen del viaje nunca se rompe por esto.
-        // Actualízalo de vez en cuando si queda muy desfasado.
         return enviarJSON(res, 200, {
           tasa: 773.31,
           fecha: null,
@@ -570,42 +692,64 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    // GET /conductores
+    // GET /conductores — herramienta de depuración, SOLO administrador
+    // (antes estaba abierta a cualquiera, exponía todos los conductores)
     if (req.method === "GET" && req.url === "/conductores") {
+      if (!esAdmin(req)) return prohibido(res, "Solo un administrador puede ver esto");
       return enviarJSON(res, 200, await conductoresStore.todos());
     }
 
-    // GET /pedidos — todos los pedidos, más recientes primero (para
-    // revisar el estado real de cualquiera sin adivinar).
+    // GET /pedidos — herramienta de depuración, SOLO administrador
+    // (antes estaba abierta a cualquiera, exponía todos los pedidos)
     if (req.method === "GET" && req.url === "/pedidos") {
+      if (!esAdmin(req)) return prohibido(res, "Solo un administrador puede ver esto");
       const pedidos = await pedidosStore.todos();
       pedidos.sort((a, b) => (a.creadoEn < b.creadoEn ? 1 : -1));
       return enviarJSON(res, 200, pedidos);
     }
 
-    // POST /pedido/:id/mensajes  { de: 'usuario'|'conductor', texto: '...' }
+    // POST /pedido/:id/mensajes  { texto: '...' }
+    // Solo alguno de los dos involucrados en ESE pedido puede escribir,
+    // y el servidor decide quién es "de" según el token — no lo que
+    // el cliente diga en el body, para que nadie pueda fingir ser la
+    // otra persona en el chat.
     if (
       req.method === "POST" &&
       partes[0] === "pedido" &&
       partes[2] === "mensajes"
     ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      const pedidoActual = await pedidosStore.obtenerPorId(partes[1]);
+      if (!pedidoActual) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
+      if (uid !== pedidoActual.usuarioId && uid !== pedidoActual.conductorId) {
+        return prohibido(res, "No eres parte de este viaje");
+      }
       const body = await leerCuerpo(req);
       if (!body.texto || !body.texto.trim()) {
         return enviarJSON(res, 400, { error: "El mensaje está vacío" });
       }
+      const de = uid === pedidoActual.conductorId ? "conductor" : "usuario";
       const mensaje = await pedidosStore.agregarMensaje(partes[1], {
-        de: body.de,
+        de,
         texto: body.texto.trim(),
       });
       return enviarJSON(res, 200, { mensaje });
     }
 
-    // GET /pedido/:id/mensajes
+    // GET /pedido/:id/mensajes — solo alguno de los dos involucrados
     if (
       req.method === "GET" &&
       partes[0] === "pedido" &&
       partes[2] === "mensajes"
     ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      const pedidoActual = await pedidosStore.obtenerPorId(partes[1]);
+      if (!pedidoActual) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
+      if (uid !== pedidoActual.usuarioId && uid !== pedidoActual.conductorId) {
+        return prohibido(res, "No eres parte de este viaje");
+      }
       const mensajes = await pedidosStore.obtenerMensajes(partes[1]);
       return enviarJSON(res, 200, { mensajes });
     }

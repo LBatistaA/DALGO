@@ -3,6 +3,7 @@
 // hay que usar la sintaxis modular nueva, importando cada pieza aparte.
 const { initializeApp, cert, getApps } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
+const { getAuth } = require("firebase-admin/auth");
 
 const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
 if (!serviceAccountJson) {
@@ -19,5 +20,6 @@ const app = getApps().length
   : initializeApp({ credential: cert(serviceAccount) });
 
 const db = getFirestore(app);
+const auth = getAuth(app);
 
-module.exports = { db };
+module.exports = { db, auth };
