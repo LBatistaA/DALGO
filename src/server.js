@@ -483,6 +483,31 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { pedido });
     }
 
+    // POST /pedido/:id/cancelar
+    // Cualquiera de los dos involucrados en el pedido puede cancelarlo,
+    // mientras el viaje todavía no esté en curso (en_servicio) ni ya
+    // haya terminado. Si había conductor asignado, lo libera para que
+    // pueda tomar otros pedidos.
+    if (req.method === "POST" && partes[0] === "pedido" && partes[2] === "cancelar") {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      const pedido = await pedidosStore.obtenerPorId(partes[1]);
+      if (!pedido) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
+      if (uid !== pedido.usuarioId && uid !== pedido.conductorId) {
+        return prohibido(res, "No eres parte de este viaje");
+      }
+      if (pedido.estado === "en_servicio" || pedido.estado === "completado") {
+        return enviarJSON(res, 400, {
+          error: "Ya no se puede cancelar — el viaje está en curso o ya terminó",
+        });
+      }
+      const actualizado = await pedidosStore.actualizarEstado(partes[1], "cancelado");
+      if (pedido.conductorId) {
+        await conductoresStore.marcarDisponible(pedido.conductorId);
+      }
+      return enviarJSON(res, 200, { pedido: actualizado });
+    }
+
     // POST /pedido/:id/completar — solo el conductor YA asignado
     if (req.method === "POST" && partes[0] === "pedido" && partes[2] === "completar") {
       const uid = await verificarToken(req);
