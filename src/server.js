@@ -307,6 +307,18 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    // GET /conductor/:id/viaje-activo — si tiene un viaje ya aceptado
+    // sin terminar (confirmado o en_servicio). Se consulta al abrir la
+    // app, para retomarlo si se cerró a la mitad de un viaje.
+    if (
+      req.method === "GET" &&
+      partes[0] === "conductor" &&
+      partes[2] === "viaje-activo"
+    ) {
+      const pedido = await pedidosStore.obtenerViajeActivoPorConductor(partes[1]);
+      return enviarJSON(res, 200, { pedido });
+    }
+
     // GET /conductor/:id/pedido-pendiente
     if (
       req.method === "GET" &&

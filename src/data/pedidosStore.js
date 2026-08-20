@@ -118,6 +118,18 @@ async function obtenerPorConductor(conductorId) {
     .sort((a, b) => (a.creadoEn < b.creadoEn ? 1 : -1));
 }
 
+// Si el conductor aceptó un pedido y todavía no lo completó (confirmado
+// o en_servicio), es su "viaje activo" — sirve para que, si cierra la
+// app a la mitad de un viaje y la vuelve a abrir, retome exactamente
+// donde se quedó en vez de perderlo.
+async function obtenerViajeActivoPorConductor(conductorId) {
+  const todos = await obtenerPorConductor(conductorId);
+  return (
+    todos.find((p) => p.estado === "confirmado" || p.estado === "en_servicio") ||
+    null
+  );
+}
+
 // Igual que la anterior, pero del lado del usuario — para su pantalla
 // de "Mis viajes".
 async function obtenerPorUsuario(usuarioId) {
@@ -214,6 +226,7 @@ module.exports = {
   obtenerPendientePorConductor,
   obtenerPendientesPorConductor,
   obtenerPorConductor,
+  obtenerViajeActivoPorConductor,
   obtenerPorUsuario,
   descartarParaConductor,
   intentarConfirmar,
