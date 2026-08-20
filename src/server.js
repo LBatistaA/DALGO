@@ -560,6 +560,33 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, pedidos);
     }
 
+    // POST /pedido/:id/mensajes  { de: 'usuario'|'conductor', texto: '...' }
+    if (
+      req.method === "POST" &&
+      partes[0] === "pedido" &&
+      partes[2] === "mensajes"
+    ) {
+      const body = await leerCuerpo(req);
+      if (!body.texto || !body.texto.trim()) {
+        return enviarJSON(res, 400, { error: "El mensaje está vacío" });
+      }
+      const mensaje = await pedidosStore.agregarMensaje(partes[1], {
+        de: body.de,
+        texto: body.texto.trim(),
+      });
+      return enviarJSON(res, 200, { mensaje });
+    }
+
+    // GET /pedido/:id/mensajes
+    if (
+      req.method === "GET" &&
+      partes[0] === "pedido" &&
+      partes[2] === "mensajes"
+    ) {
+      const mensajes = await pedidosStore.obtenerMensajes(partes[1]);
+      return enviarJSON(res, 200, { mensajes });
+    }
+
     enviarJSON(res, 404, { error: "Ruta no encontrada" });
   } catch (err) {
     console.error(err);

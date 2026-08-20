@@ -168,6 +168,33 @@ async function todos() {
   return snap.docs.map((d) => d.data());
 }
 
+// Chat del viaje — mensajes entre el usuario y el conductor, guardados
+// como subcolección del pedido (así se borran solos si algún día se
+// limpian pedidos viejos, sin dejar mensajes sueltos).
+async function agregarMensaje(pedidoId, { de, texto }) {
+  const mensaje = {
+    de, // 'usuario' | 'conductor'
+    texto,
+    enviadoEn: new Date().toISOString(),
+  };
+  const ref = await db
+    .collection(COLECCION)
+    .doc(pedidoId)
+    .collection("mensajes")
+    .add(mensaje);
+  return { id: ref.id, ...mensaje };
+}
+
+async function obtenerMensajes(pedidoId) {
+  const snap = await db
+    .collection(COLECCION)
+    .doc(pedidoId)
+    .collection("mensajes")
+    .orderBy("enviadoEn", "asc")
+    .get();
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
 module.exports = {
   crear,
   obtenerPorId,
@@ -177,5 +204,7 @@ module.exports = {
   descartarParaConductor,
   intentarConfirmar,
   actualizarEstado,
+  agregarMensaje,
+  obtenerMensajes,
   todos,
 };
