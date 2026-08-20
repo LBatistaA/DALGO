@@ -66,27 +66,43 @@ async function obtenerPendientePorConductor(conductorId) {
 // conductor es candidato — un mismo conductor puede ser candidato de
 // varios pedidos a la vez (hasta 10 candidatos por pedido), así que
 // mostrarle solo "el más reciente" escondería los demás.
+// Pasado este tiempo sin que nadie acepte, el pedido deja de estar
+// "buscando_conductor" de verdad — pasa a "sin_conductor". No es solo
+// esconderlo: es el estado real del pedido, así que también deja de
+// aparecerle a cualquier otro conductor, y el cliente puede enterarse
+// (ver GET /pedido/:id) para intentarlo de nuevo.
+const MINUTOS_ANTES_DE_EXPIRAR = 15;
+
 async function obtenerPendientesPorConductor(conductorId) {
   const snap = await db
     .collection(COLECCION)
     .where("estado", "==", "buscando_conductor")
     .get();
 
-  // Un pedido que lleva mucho tiempo "buscando_conductor" sin que nadie
-  // responda ya no es realista mostrarlo — probablemente el cliente ya
-  // se fue, o es un pedido de prueba viejo. 45 min es un margen amplio.
-  const VENTANA_MS = 45 * 60 * 1000;
+  const limiteMs = MINUTOS_ANTES_DE_EXPIRAR * 60 * 1000;
   const ahora = Date.now();
+  const vigentes = [];
 
-  return snap.docs
-    .map((d) => d.data())
-    .filter(
-      (p) =>
-        (p.candidatos || []).includes(conductorId) &&
-        !(p.descartadoPor || []).includes(conductorId) &&
-        ahora - new Date(p.creadoEn).getTime() < VENTANA_MS
-    )
-    .sort((a, b) => (a.creadoEn < b.creadoEn ? 1 : -1));
+  for (const doc of snap.docs) {
+    const p = doc.data();
+    const esCandidato =
+      (p.candidatos || []).includes(conductorId) &&
+      !(p.descartadoPor || []).includes(conductorId);
+    if (!esCandidato) continue;
+
+    const expirado = ahora - new Date(p.creadoEn).getTime() > limiteMs;
+    if (expirado) {
+      // Efecto de lectura perezosa: en vez de un job aparte, el primer
+      // conductor que consulta y se topa con un pedido vencido lo marca
+      // como tal — así queda resuelto para siempre, no solo esta vez.
+      await doc.ref.update({ estado: "sin_conductor" });
+      continue;
+    }
+
+    vigentes.push(p);
+  }
+
+  return vigentes.sort((a, b) => (a.creadoEn < b.creadoEn ? 1 : -1));
 }
 
 // Todos los pedidos que ha llevado un conductor (para su historial y
