@@ -525,6 +525,17 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { usuario });
     }
 
+    // GET /usuario/:id/historial — todos sus pedidos, para su pantalla
+    // "Mis viajes"
+    if (
+      req.method === "GET" &&
+      partes[0] === "usuario" &&
+      partes[2] === "historial"
+    ) {
+      const historial = await pedidosStore.obtenerPorUsuario(partes[1]);
+      return enviarJSON(res, 200, { historial });
+    }
+
     // GET /tasa-bcv — tasa oficial del dólar (BCV), para mostrar el
     // total también en bolívares en el resumen del viaje.
     if (req.method === "GET" && req.url === "/tasa-bcv") {

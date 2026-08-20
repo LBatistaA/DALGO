@@ -118,6 +118,19 @@ async function obtenerPorConductor(conductorId) {
     .sort((a, b) => (a.creadoEn < b.creadoEn ? 1 : -1));
 }
 
+// Igual que la anterior, pero del lado del usuario — para su pantalla
+// de "Mis viajes".
+async function obtenerPorUsuario(usuarioId) {
+  const snap = await db
+    .collection(COLECCION)
+    .where("usuarioId", "==", usuarioId)
+    .get();
+
+  return snap.docs
+    .map((d) => d.data())
+    .sort((a, b) => (a.creadoEn < b.creadoEn ? 1 : -1));
+}
+
 // Un conductor descarta el pedido — deja de vérselo a él, pero sigue
 // disponible para los demás candidatos.
 async function descartarParaConductor(id, conductorId) {
@@ -201,6 +214,7 @@ module.exports = {
   obtenerPendientePorConductor,
   obtenerPendientesPorConductor,
   obtenerPorConductor,
+  obtenerPorUsuario,
   descartarParaConductor,
   intentarConfirmar,
   actualizarEstado,
