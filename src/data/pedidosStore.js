@@ -72,12 +72,19 @@ async function obtenerPendientesPorConductor(conductorId) {
     .where("estado", "==", "buscando_conductor")
     .get();
 
+  // Un pedido que lleva mucho tiempo "buscando_conductor" sin que nadie
+  // responda ya no es realista mostrarlo — probablemente el cliente ya
+  // se fue, o es un pedido de prueba viejo. 45 min es un margen amplio.
+  const VENTANA_MS = 45 * 60 * 1000;
+  const ahora = Date.now();
+
   return snap.docs
     .map((d) => d.data())
     .filter(
       (p) =>
         (p.candidatos || []).includes(conductorId) &&
-        !(p.descartadoPor || []).includes(conductorId)
+        !(p.descartadoPor || []).includes(conductorId) &&
+        ahora - new Date(p.creadoEn).getTime() < VENTANA_MS
     )
     .sort((a, b) => (a.creadoEn < b.creadoEn ? 1 : -1));
 }

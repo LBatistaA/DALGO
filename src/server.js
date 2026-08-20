@@ -118,13 +118,26 @@ const server = http.createServer(async (req, res) => {
 
     // GET /pedido/:id — estado actual, y si ya hay conductor asignado,
     // sus datos públicos (para que el cliente los muestre: nombre,
-    // placa, color, teléfono).
+    // placa, color, teléfono) junto con su ubicación en vivo y los
+    // minutos estimados hasta el punto de recogida.
     if (req.method === "GET" && partes[0] === "pedido" && partes.length === 2) {
       const pedido = await pedidosStore.obtenerPorId(partes[1]);
       if (!pedido) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
-      const conductor = pedido.conductorId
-        ? infoPublicaConductor(await conductoresStore.obtener(pedido.conductorId))
-        : null;
+
+      let conductor = null;
+      if (pedido.conductorId) {
+        const c = await conductoresStore.obtener(pedido.conductorId);
+        conductor = infoPublicaConductor(c);
+        if (conductor && c.lat != null && c.lng != null) {
+          conductor.lat = c.lat;
+          conductor.lng = c.lng;
+          conductor.minutosEstimados = Math.round(
+            (distanciaKm({ lat: c.lat, lng: c.lng }, pedido.origen) /
+              fareConfig.velocidadPromedioKmh) *
+              60
+          );
+        }
+      }
       return enviarJSON(res, 200, { pedido, conductor });
     }
 
