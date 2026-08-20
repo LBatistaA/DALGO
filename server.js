@@ -552,14 +552,6 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, await conductoresStore.todos());
     }
 
-    // GET /pedidos — todos los pedidos, más recientes primero (para
-    // revisar el estado real de cualquiera sin adivinar).
-    if (req.method === "GET" && req.url === "/pedidos") {
-      const pedidos = await pedidosStore.todos();
-      pedidos.sort((a, b) => (a.creadoEn < b.creadoEn ? 1 : -1));
-      return enviarJSON(res, 200, pedidos);
-    }
-
     enviarJSON(res, 404, { error: "Ruta no encontrada" });
   } catch (err) {
     console.error(err);
