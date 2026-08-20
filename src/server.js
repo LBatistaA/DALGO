@@ -53,6 +53,16 @@ function infoPublicaConductor(c) {
   };
 }
 
+function infoPublicaUsuario(u) {
+  if (!u) return null;
+  return {
+    id: u.id,
+    nombre: u.nombre,
+    telefono: u.telefono,
+    tieneFotoPerfil: !!u.tieneFotoPerfil,
+  };
+}
+
 const server = http.createServer(async (req, res) => {
   const partes = segmentos(req.url);
 
@@ -116,10 +126,9 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // GET /pedido/:id — estado actual, y si ya hay conductor asignado,
-    // sus datos públicos (para que el cliente los muestre: nombre,
-    // placa, color, teléfono) junto con su ubicación en vivo y los
-    // minutos estimados hasta el punto de recogida.
+    // GET /pedido/:id — estado actual, datos públicos del conductor (si
+    // ya hay uno asignado) con su ubicación en vivo y minutos estimados,
+    // y datos públicos del usuario (para que el conductor los vea).
     if (req.method === "GET" && partes[0] === "pedido" && partes.length === 2) {
       const pedido = await pedidosStore.obtenerPorId(partes[1]);
       if (!pedido) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
@@ -138,7 +147,12 @@ const server = http.createServer(async (req, res) => {
           );
         }
       }
-      return enviarJSON(res, 200, { pedido, conductor });
+
+      const usuario = pedido.usuarioId
+        ? infoPublicaUsuario(await usuariosStore.obtener(pedido.usuarioId))
+        : null;
+
+      return enviarJSON(res, 200, { pedido, conductor, usuario });
     }
 
     // GET /conductores/cercanos?lat=&lng=&tipoVehiculo=
@@ -476,10 +490,32 @@ const server = http.createServer(async (req, res) => {
     // POST /usuario/registrar
     if (req.method === "POST" && req.url === "/usuario/registrar") {
       const body = await leerCuerpo(req);
-      const { id, nombre } = body;
+      const { id, nombre, telefono } = body;
       if (!id) return enviarJSON(res, 400, { error: "Falta id" });
-      const usuario = await usuariosStore.registrar({ id, nombre });
+      const usuario = await usuariosStore.registrar({ id, nombre, telefono });
       return enviarJSON(res, 200, { usuario });
+    }
+
+    // POST /usuario/:id/foto-perfil  { fotoPerfil: "data:image/..." }
+    if (
+      req.method === "POST" &&
+      partes[0] === "usuario" &&
+      partes[2] === "foto-perfil"
+    ) {
+      const body = await leerCuerpo(req);
+      const usuario = await usuariosStore.guardarFotoPerfil(partes[1], body.fotoPerfil);
+      if (!usuario) return enviarJSON(res, 404, { error: "Usuario no registrado" });
+      return enviarJSON(res, 200, { usuario });
+    }
+
+    // GET /usuario/:id/foto-perfil
+    if (
+      req.method === "GET" &&
+      partes[0] === "usuario" &&
+      partes[2] === "foto-perfil"
+    ) {
+      const fotoPerfil = await usuariosStore.obtenerFotoPerfil(partes[1]);
+      return enviarJSON(res, 200, { fotoPerfil });
     }
 
     // GET /usuario/:id

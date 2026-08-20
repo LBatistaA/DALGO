@@ -2,7 +2,7 @@ const { db } = require("../firebaseAdmin");
 
 const COLECCION = "usuarios";
 
-async function registrar({ id, nombre }) {
+async function registrar({ id, nombre, telefono }) {
   const ref = db.collection(COLECCION).doc(id);
   const snap = await ref.get();
   const existente = snap.exists ? snap.data() : null;
@@ -10,6 +10,8 @@ async function registrar({ id, nombre }) {
   const datos = {
     id,
     nombre: nombre || (existente ? existente.nombre || null : null),
+    telefono: telefono || (existente ? existente.telefono || null : null),
+    tieneFotoPerfil: existente ? !!existente.tieneFotoPerfil : false,
     moviCoins: existente ? existente.moviCoins || 0 : 0,
     viajesCompletados: existente ? existente.viajesCompletados || 0 : 0,
   };
@@ -21,6 +23,27 @@ async function registrar({ id, nombre }) {
 async function obtener(id) {
   const snap = await db.collection(COLECCION).doc(id).get();
   return snap.exists ? snap.data() : null;
+}
+
+// La foto de perfil se guarda aparte (mismo motivo que en conductores:
+// el límite de 1 MB por documento de Firestore).
+async function guardarFotoPerfil(id, fotoDataUrl) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.collection("documentos").doc("fotoPerfil").set({ dataUrl: fotoDataUrl });
+  await ref.update({ tieneFotoPerfil: true });
+  return { ...snap.data(), tieneFotoPerfil: true };
+}
+
+async function obtenerFotoPerfil(id) {
+  const doc = await db
+    .collection(COLECCION)
+    .doc(id)
+    .collection("documentos")
+    .doc("fotoPerfil")
+    .get();
+  return doc.exists ? doc.data().dataUrl : null;
 }
 
 // Suma MoviCoins y cuenta un viaje más — se usa cuando un pedido se
@@ -74,4 +97,11 @@ async function agregarCalificacion(id, estrellas) {
   });
 }
 
-module.exports = { registrar, obtener, agregarMoviCoins, agregarCalificacion };
+module.exports = {
+  registrar,
+  obtener,
+  guardarFotoPerfil,
+  obtenerFotoPerfil,
+  agregarMoviCoins,
+  agregarCalificacion,
+};
