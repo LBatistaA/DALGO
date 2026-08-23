@@ -5,6 +5,7 @@ const { distanciaKm } = require("./utils/geo");
 const conductoresStore = require("./data/conductoresStore");
 const pedidosStore = require("./data/pedidosStore");
 const usuariosStore = require("./data/usuariosStore");
+const restaurantesStore = require("./data/restaurantesStore");
 const fareConfig = require("./config/fareConfig");
 const { auth } = require("./firebaseAdmin");
 
@@ -722,6 +723,93 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && req.url === "/conductores") {
       if (!esAdmin(req)) return prohibido(res, "Solo un administrador puede ver esto");
       return enviarJSON(res, 200, await conductoresStore.todos());
+    }
+
+    // GET /restaurantes — lista de aliados activos, para que el usuario
+    // los vea en la app (cualquiera autenticado puede verlos)
+    if (req.method === "GET" && req.url === "/restaurantes") {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      const restaurantes = await restaurantesStore.obtenerTodos();
+      return enviarJSON(res, 200, { restaurantes });
+    }
+
+    // GET /restaurantes/:id — datos del restaurante + su menú completo
+    if (
+      req.method === "GET" &&
+      partes[0] === "restaurantes" &&
+      partes.length === 2
+    ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      const restaurante = await restaurantesStore.obtener(partes[1]);
+      if (!restaurante) return enviarJSON(res, 404, { error: "Restaurante no encontrado" });
+      const productos = await restaurantesStore.obtenerProductos(partes[1]);
+      return enviarJSON(res, 200, { restaurante, productos });
+    }
+
+    // POST /restaurantes — SOLO administrador (mientras Dalgo no tenga
+    // su propio panel, esto se usa manualmente para cargar aliados)
+    if (req.method === "POST" && req.url === "/restaurantes") {
+      if (!esAdmin(req)) return prohibido(res, "Solo un administrador puede hacer esto");
+      const body = await leerCuerpo(req);
+      if (!body.nombre) return enviarJSON(res, 400, { error: "Falta el nombre" });
+      const restaurante = await restaurantesStore.crear(body);
+      return enviarJSON(res, 200, { restaurante });
+    }
+
+    // PUT /restaurantes/:id — SOLO administrador
+    if (
+      req.method === "PUT" &&
+      partes[0] === "restaurantes" &&
+      partes.length === 2
+    ) {
+      if (!esAdmin(req)) return prohibido(res, "Solo un administrador puede hacer esto");
+      const body = await leerCuerpo(req);
+      const restaurante = await restaurantesStore.actualizar(partes[1], body);
+      if (!restaurante) return enviarJSON(res, 404, { error: "Restaurante no encontrado" });
+      return enviarJSON(res, 200, { restaurante });
+    }
+
+    // POST /restaurantes/:id/productos — SOLO administrador
+    if (
+      req.method === "POST" &&
+      partes[0] === "restaurantes" &&
+      partes[2] === "productos"
+    ) {
+      if (!esAdmin(req)) return prohibido(res, "Solo un administrador puede hacer esto");
+      const body = await leerCuerpo(req);
+      if (!body.nombre || body.precio == null) {
+        return enviarJSON(res, 400, { error: "Faltan datos: nombre y precio son requeridos" });
+      }
+      const producto = await restaurantesStore.agregarProducto(partes[1], body);
+      return enviarJSON(res, 200, { producto });
+    }
+
+    // PUT /restaurantes/:id/productos/:productoId — SOLO administrador
+    if (
+      req.method === "PUT" &&
+      partes[0] === "restaurantes" &&
+      partes[2] === "productos" &&
+      partes.length === 4
+    ) {
+      if (!esAdmin(req)) return prohibido(res, "Solo un administrador puede hacer esto");
+      const body = await leerCuerpo(req);
+      const producto = await restaurantesStore.actualizarProducto(partes[1], partes[3], body);
+      if (!producto) return enviarJSON(res, 404, { error: "Producto no encontrado" });
+      return enviarJSON(res, 200, { producto });
+    }
+
+    // DELETE /restaurantes/:id/productos/:productoId — SOLO administrador
+    if (
+      req.method === "DELETE" &&
+      partes[0] === "restaurantes" &&
+      partes[2] === "productos" &&
+      partes.length === 4
+    ) {
+      if (!esAdmin(req)) return prohibido(res, "Solo un administrador puede hacer esto");
+      await restaurantesStore.eliminarProducto(partes[1], partes[3]);
+      return enviarJSON(res, 200, { eliminado: true });
     }
 
     // GET /pedidos — herramienta de depuración, SOLO administrador
