@@ -16,6 +16,84 @@ async function _siguienteId() {
 // Crea un pedido en estado "buscando_conductor" — se le notifica a una
 // lista de conductores candidatos (los más cercanos), y el primero que
 // lo acepte se lo queda.
+// Número de tracking — se genera del lado del cliente cuando pide por
+// WhatsApp a un Aliado, y viaja en el mensaje. Formato distinto al
+// código de cliente para que no se confundan a simple vista.
+function _generarNumeroTracking() {
+  const caracteres = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  let codigo = "";
+  for (let i = 0; i < 6; i++) {
+    codigo += caracteres[Math.floor(Math.random() * caracteres.length)];
+  }
+  return `MOVI-${codigo}`;
+}
+
+// Se crea cuando el cliente confirma "sí, hice mi pedido" después de
+// hablar por WhatsApp con el Aliado — todavía no busca conductor, solo
+// deja registro de que el pedido existe y a quién pertenece, para que
+// el Aliado lo pueda "recoger" después con el número de tracking.
+async function crearProcesando({
+  usuarioId,
+  restauranteId,
+  restauranteNombre,
+  origen,
+  destino,
+  numeroTracking,
+}) {
+  const id = String(await _siguienteId());
+  const pedido = {
+    id,
+    tipoServicio: "delivery",
+    subtipo: "aliado",
+    detalles: null,
+    origen,
+    destino,
+    tarifa: null, // se calcula cuando el aliado busca el conductor
+    tipoVehiculo: null,
+    candidatos: [],
+    descartadoPor: [],
+    conductorId: null,
+    usuarioId,
+    creadoPorId: null,
+    nombreCliente: null,
+    telefonoCliente: null,
+    restauranteId,
+    restauranteNombre: restauranteNombre || null,
+    numeroTracking,
+    // procesando | buscando_conductor | confirmado | en_servicio | completado
+    estado: "procesando",
+    creadoEn: new Date().toISOString(),
+  };
+  await db.collection(COLECCION).doc(id).set(pedido);
+  return pedido;
+}
+
+async function buscarPorTracking(numeroTracking) {
+  if (!numeroTracking) return null;
+  const snap = await db
+    .collection(COLECCION)
+    .where("numeroTracking", "==", numeroTracking.toUpperCase().trim())
+    .get();
+  return snap.empty ? null : snap.docs[0].data();
+}
+
+// El Aliado ya tiene el número de tracking del cliente — esto convierte
+// ese pedido "procesando" en uno real de verdad, con tarifa calculada
+// y candidatos a conductor ya notificados.
+async function avanzarAProcesarBusqueda(id, { tarifa, candidatos, creadoPorId }) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  const cambios = {
+    estado: "buscando_conductor",
+    tarifa,
+    candidatos,
+    creadoPorId,
+  };
+  await ref.update(cambios);
+  return { ...snap.data(), ...cambios };
+}
+
 async function crear({
   tipoServicio,
   subtipo,
@@ -29,6 +107,8 @@ async function crear({
   creadoPorId,
   nombreCliente,
   telefonoCliente,
+  restauranteId,
+  restauranteNombre,
 }) {
   const id = String(await _siguienteId());
   const pedido = {
@@ -50,6 +130,10 @@ async function crear({
     creadoPorId: creadoPorId || null,
     nombreCliente: nombreCliente || null,
     telefonoCliente: telefonoCliente || null,
+    // Si el pedido es de un Aliado, para que el conductor sepa de qué
+    // negocio es la entrega.
+    restauranteId: restauranteId || null,
+    restauranteNombre: restauranteNombre || null,
     // buscando_conductor | confirmado | completado
     estado: "buscando_conductor",
     creadoEn: new Date().toISOString(),
@@ -231,6 +315,9 @@ async function obtenerMensajes(pedidoId) {
 
 module.exports = {
   crear,
+  crearProcesando,
+  buscarPorTracking,
+  avanzarAProcesarBusqueda,
   obtenerPorId,
   obtenerPendientePorConductor,
   obtenerPendientesPorConductor,

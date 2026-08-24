@@ -142,7 +142,66 @@ const server = http.createServer(async (req, res) => {
         nombreCliente,
         telefonoCliente,
         codigoCliente,
+        numeroTracking,
       } = body;
+
+      // Si viene un número de tracking, es el Aliado "recogiendo" un
+      // pedido que su cliente ya dejó en estado "procesando" después
+      // de hablar por WhatsApp — se busca ese pedido y se avanza a
+      // buscar conductor, en vez de crear uno nuevo desde cero.
+      if (numeroTracking) {
+        const pedidoExistente = await pedidosStore.buscarPorTracking(numeroTracking);
+        if (!pedidoExistente) {
+          return enviarJSON(res, 404, {
+            error: "No se encontró ningún pedido con ese número de tracking",
+          });
+        }
+        if (pedidoExistente.estado !== "procesando") {
+          return enviarJSON(res, 400, {
+            error: "Este pedido ya fue procesado antes",
+          });
+        }
+        // Verificación extra: si además dan el código del cliente,
+        // debe coincidir con el dueño real de ese número de tracking
+        // — evita que alguien "adivine" un tracking y lo tome.
+        if (codigoCliente) {
+          const clienteReal = await usuariosStore.obtener(pedidoExistente.usuarioId);
+          if (clienteReal?.codigoCliente !== codigoCliente.toUpperCase().trim()) {
+            return prohibido(res, "El código no coincide con este número de tracking");
+          }
+        }
+        const tarifaCalculada = calcularTarifa(
+          "delivery",
+          pedidoExistente.origen,
+          pedidoExistente.destino
+        );
+        const candidatosEncontrados = await buscarCandidatos(
+          pedidoExistente.origen,
+          null,
+          "delivery"
+        );
+        if (candidatosEncontrados.length === 0) {
+          return enviarJSON(res, 200, {
+            pedido: null,
+            tarifa: tarifaCalculada,
+            asignacion: { asignado: false, motivo: "No hay conductores disponibles" },
+          });
+        }
+        const actualizado = await pedidosStore.avanzarAProcesarBusqueda(pedidoExistente.id, {
+          tarifa: tarifaCalculada,
+          candidatos: candidatosEncontrados.map((c) => c.id),
+          creadoPorId: uid,
+        });
+        return enviarJSON(res, 200, {
+          pedido: actualizado,
+          tarifa: tarifaCalculada,
+          asignacion: {
+            asignado: true,
+            buscando: true,
+            candidatos: candidatosEncontrados.length,
+          },
+        });
+      }
 
       if (!tipoServicio || !origen || !destino) {
         return enviarJSON(res, 400, {
@@ -203,6 +262,34 @@ const server = http.createServer(async (req, res) => {
         tarifa,
         asignacion: { asignado: true, buscando: true, candidatos: candidatos.length },
       });
+    }
+
+    // POST /pedido/procesando
+    // El cliente confirma "sí, hice mi pedido" después de hablar por
+    // WhatsApp con un Aliado — deja el pedido guardado en estado
+    // "procesando", sin buscar conductor todavía. El Aliado lo
+    // "recoge" después con el número de tracking, cuando de verdad
+    // vaya a buscar quién lo lleve.
+    if (req.method === "POST" && req.url === "/pedido/procesando") {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      const body = await leerCuerpo(req);
+      const { restauranteId, origen, destino, numeroTracking } = body;
+      if (!restauranteId || !origen || !destino || !numeroTracking) {
+        return enviarJSON(res, 400, {
+          error: "Faltan datos: restauranteId, origen, destino y numeroTracking son requeridos",
+        });
+      }
+      const restaurante = await restaurantesStore.obtener(restauranteId);
+      const pedido = await pedidosStore.crearProcesando({
+        usuarioId: uid,
+        restauranteId,
+        restauranteNombre: restaurante?.nombre || null,
+        origen,
+        destino,
+        numeroTracking: numeroTracking.toUpperCase().trim(),
+      });
+      return enviarJSON(res, 200, { pedido });
     }
 
     // GET /pedido/:id — cualquiera de los involucrados puede consultarlo;
