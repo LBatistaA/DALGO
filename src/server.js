@@ -646,6 +646,21 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { usuario });
     }
 
+    // POST /usuario/:id/tipo  { tipoUsuario: 'comun' | 'negocio' }
+    // SOLO administrador — mientras no exista un flujo propio de alta
+    // de aliados, esto se marca a mano (mismo patrón que aprobar
+    // conductores).
+    if (req.method === "POST" && partes[0] === "usuario" && partes[2] === "tipo") {
+      if (!esAdmin(req)) return prohibido(res, "Solo un administrador puede hacer esto");
+      const body = await leerCuerpo(req);
+      if (body.tipoUsuario !== "comun" && body.tipoUsuario !== "negocio") {
+        return enviarJSON(res, 400, { error: "tipoUsuario debe ser 'comun' o 'negocio'" });
+      }
+      const usuario = await usuariosStore.actualizarTipo(partes[1], body.tipoUsuario);
+      if (!usuario) return enviarJSON(res, 404, { error: "Usuario no registrado" });
+      return enviarJSON(res, 200, { usuario });
+    }
+
     // POST /usuario/:id/foto-perfil — solo el usuario mismo
     if (
       req.method === "POST" &&

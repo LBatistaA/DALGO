@@ -14,6 +14,9 @@ async function registrar({ id, nombre, telefono }) {
     tieneFotoPerfil: existente ? !!existente.tieneFotoPerfil : false,
     moviCoins: existente ? existente.moviCoins || 0 : 0,
     viajesCompletados: existente ? existente.viajesCompletados || 0 : 0,
+    // 'comun' = consumidor normal; 'negocio' = aliado (pide deliveries
+    // de lo que ya vendió). Por defecto todos entran como 'comun'.
+    tipoUsuario: existente ? existente.tipoUsuario || "comun" : "comun",
   };
 
   await ref.set(datos, { merge: true });
@@ -97,6 +100,14 @@ async function agregarCalificacion(id, estrellas) {
   });
 }
 
+async function actualizarTipo(id, tipoUsuario) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.update({ tipoUsuario });
+  return { ...snap.data(), tipoUsuario };
+}
+
 module.exports = {
   registrar,
   obtener,
@@ -104,4 +115,5 @@ module.exports = {
   obtenerFotoPerfil,
   agregarMoviCoins,
   agregarCalificacion,
+  actualizarTipo,
 };
