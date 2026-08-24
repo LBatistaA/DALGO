@@ -40,6 +40,10 @@ async function registrar({ id, nombre, telefono }) {
     // Código propio para vincular pedidos sin depender del teléfono —
     // se genera una sola vez, la primera vez que se registra.
     codigoCliente: existente ? existente.codigoCliente || _generarCodigo() : _generarCodigo(),
+    // Si es una cuenta de negocio, a qué restaurante representa (para
+    // que "Llevar pedido" sepa de dónde recoger sin tener que
+    // escribirlo cada vez).
+    restauranteId: existente ? existente.restauranteId || null : null,
   };
 
   await ref.set(datos, { merge: true });
@@ -140,6 +144,14 @@ async function actualizarTipo(id, tipoUsuario) {
   return { ...snap.data(), tipoUsuario };
 }
 
+async function vincularRestaurante(id, restauranteId) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.update({ restauranteId });
+  return { ...snap.data(), restauranteId };
+}
+
 // El cliente ya completó la verificación por SMS con Firebase del lado
 // de la app — aquí solo queda el registro de que ese número específico
 // quedó confirmado.
@@ -176,4 +188,5 @@ module.exports = {
   marcarTelefonoVerificado,
   buscarPorTelefonoVerificado,
   buscarPorCodigo,
+  vincularRestaurante,
 };

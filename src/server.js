@@ -698,6 +698,20 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { usuario });
     }
 
+    // POST /usuario/:id/restaurante  { restauranteId: '1' }
+    // SOLO administrador — vincula una cuenta de negocio con el
+    // restaurante que representa (mismo patrón manual que lo demás).
+    if (req.method === "POST" && partes[0] === "usuario" && partes[2] === "restaurante") {
+      if (!esAdmin(req)) return prohibido(res, "Solo un administrador puede hacer esto");
+      const body = await leerCuerpo(req);
+      if (!body.restauranteId) {
+        return enviarJSON(res, 400, { error: "Falta restauranteId" });
+      }
+      const usuario = await usuariosStore.vincularRestaurante(partes[1], body.restauranteId);
+      if (!usuario) return enviarJSON(res, 404, { error: "Usuario no registrado" });
+      return enviarJSON(res, 200, { usuario });
+    }
+
     // POST /usuario/:id/telefono/verificar — solo uno mismo puede
     // marcar SU PROPIO teléfono como verificado, y solo después de
     // haber completado la verificación por SMS con Firebase del lado
