@@ -13,7 +13,7 @@ async function _siguienteId() {
   });
 }
 
-async function crear({ nombre, descripcion, categoria, icono, telefono }) {
+async function crear({ nombre, descripcion, categoria, icono, telefono, lat, lng }) {
   const id = String(await _siguienteId());
   const restaurante = {
     id,
@@ -22,6 +22,8 @@ async function crear({ nombre, descripcion, categoria, icono, telefono }) {
     categoria: categoria || null,
     icono: icono || null, // nombre de ícono a mostrar (ej. "tools-kitchen-2")
     telefono: telefono || null, // para el botón "Pedir por WhatsApp"
+    lat: lat != null ? Number(lat) : null, // para calcular el delivery
+    lng: lng != null ? Number(lng) : null,
     activo: true,
     creadoEn: new Date().toISOString(),
   };
