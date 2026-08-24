@@ -2,6 +2,17 @@ const { db } = require("../firebaseAdmin");
 
 const COLECCION = "usuarios";
 
+// Código corto y fácil de decir por WhatsApp — evita caracteres que se
+// confunden entre sí (0/O, 1/I/l).
+function _generarCodigo() {
+  const caracteres = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  let codigo = "";
+  for (let i = 0; i < 6; i++) {
+    codigo += caracteres[Math.floor(Math.random() * caracteres.length)];
+  }
+  return codigo;
+}
+
 async function registrar({ id, nombre, telefono }) {
   const ref = db.collection(COLECCION).doc(id);
   const snap = await ref.get();
@@ -26,10 +37,22 @@ async function registrar({ id, nombre, telefono }) {
       : existente
       ? !!existente.telefonoVerificado
       : false,
+    // Código propio para vincular pedidos sin depender del teléfono —
+    // se genera una sola vez, la primera vez que se registra.
+    codigoCliente: existente ? existente.codigoCliente || _generarCodigo() : _generarCodigo(),
   };
 
   await ref.set(datos, { merge: true });
   return datos;
+}
+
+async function buscarPorCodigo(codigo) {
+  if (!codigo) return null;
+  const snap = await db
+    .collection(COLECCION)
+    .where("codigoCliente", "==", codigo.toUpperCase().trim())
+    .get();
+  return snap.empty ? null : snap.docs[0].data();
 }
 
 async function obtener(id) {
@@ -152,4 +175,5 @@ module.exports = {
   actualizarTipo,
   marcarTelefonoVerificado,
   buscarPorTelefonoVerificado,
+  buscarPorCodigo,
 };

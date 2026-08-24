@@ -137,6 +137,7 @@ const server = http.createServer(async (req, res) => {
         usuarioId,
         nombreCliente,
         telefonoCliente,
+        codigoCliente,
       } = body;
 
       if (!tipoServicio || !origen || !destino) {
@@ -149,18 +150,20 @@ const server = http.createServer(async (req, res) => {
       }
 
       // Si quien pide el delivery es un aliado (ej. un negocio pidiendo
-      // que le lleven un pedido ya vendido) y da el teléfono del
-      // cliente final, buscamos si ese número ya está verificado por
-      // alguien — si sí, ESE usuario queda como quien puede seguir el
-      // pedido en su app, no el aliado. El aliado queda registrado
-      // aparte, como quien lo creó.
+      // que le lleven un pedido ya vendido) puede vincularlo al cliente
+      // final de dos formas: por su teléfono ya verificado, o por su
+      // código propio (más simple, no depende de tener el teléfono
+      // verificado). Si da ambos, el código manda porque es más directo.
       let usuarioIdFinal = usuarioId || uid;
       let clienteVinculado = null;
-      if (telefonoCliente) {
+      if (codigoCliente) {
+        clienteVinculado = await usuariosStore.buscarPorCodigo(codigoCliente);
+      }
+      if (!clienteVinculado && telefonoCliente) {
         clienteVinculado = await usuariosStore.buscarPorTelefonoVerificado(telefonoCliente);
-        if (clienteVinculado) {
-          usuarioIdFinal = clienteVinculado.id;
-        }
+      }
+      if (clienteVinculado) {
+        usuarioIdFinal = clienteVinculado.id;
       }
 
       const tarifa = calcularTarifa(tipoServicio, origen, destino, tipoVehiculo);
