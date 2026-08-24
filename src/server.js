@@ -127,7 +127,17 @@ const server = http.createServer(async (req, res) => {
       const uid = await verificarToken(req);
       if (!uid) return noAutorizado(res);
       const body = await leerCuerpo(req);
-      const { tipoServicio, subtipo, detalles, origen, destino, tipoVehiculo, usuarioId } = body;
+      const {
+        tipoServicio,
+        subtipo,
+        detalles,
+        origen,
+        destino,
+        tipoVehiculo,
+        usuarioId,
+        nombreCliente,
+        telefonoCliente,
+      } = body;
 
       if (!tipoServicio || !origen || !destino) {
         return enviarJSON(res, 400, {
@@ -136,6 +146,21 @@ const server = http.createServer(async (req, res) => {
       }
       if (usuarioId && usuarioId !== uid) {
         return prohibido(res, "No puedes crear un pedido a nombre de otro usuario");
+      }
+
+      // Si quien pide el delivery es un aliado (ej. un negocio pidiendo
+      // que le lleven un pedido ya vendido) y da el teléfono del
+      // cliente final, buscamos si ese número ya está verificado por
+      // alguien — si sí, ESE usuario queda como quien puede seguir el
+      // pedido en su app, no el aliado. El aliado queda registrado
+      // aparte, como quien lo creó.
+      let usuarioIdFinal = usuarioId || uid;
+      let clienteVinculado = null;
+      if (telefonoCliente) {
+        clienteVinculado = await usuariosStore.buscarPorTelefonoVerificado(telefonoCliente);
+        if (clienteVinculado) {
+          usuarioIdFinal = clienteVinculado.id;
+        }
       }
 
       const tarifa = calcularTarifa(tipoServicio, origen, destino, tipoVehiculo);
@@ -158,7 +183,12 @@ const server = http.createServer(async (req, res) => {
         tarifa,
         tipoVehiculo: tipoVehiculo || null,
         candidatos: candidatos.map((c) => c.id),
-        usuarioId: usuarioId || uid,
+        usuarioId: usuarioIdFinal,
+        // Quién lo creó de verdad (el aliado) — se guarda aparte del
+        // usuarioId cuando el pedido terminó vinculado a otra persona.
+        creadoPorId: usuarioIdFinal !== uid ? uid : null,
+        nombreCliente: nombreCliente || null,
+        telefonoCliente: telefonoCliente || null,
       });
 
       return enviarJSON(res, 200, {
@@ -657,6 +687,24 @@ const server = http.createServer(async (req, res) => {
         return enviarJSON(res, 400, { error: "tipoUsuario debe ser 'comun' o 'negocio'" });
       }
       const usuario = await usuariosStore.actualizarTipo(partes[1], body.tipoUsuario);
+      if (!usuario) return enviarJSON(res, 404, { error: "Usuario no registrado" });
+      return enviarJSON(res, 200, { usuario });
+    }
+
+    // POST /usuario/:id/telefono/verificar — solo uno mismo puede
+    // marcar SU PROPIO teléfono como verificado, y solo después de
+    // haber completado la verificación por SMS con Firebase del lado
+    // de la app (esto solo registra el resultado, no reenvía el SMS)
+    if (
+      req.method === "POST" &&
+      partes[0] === "usuario" &&
+      partes[2] === "telefono" &&
+      partes[3] === "verificar"
+    ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
+      const usuario = await usuariosStore.marcarTelefonoVerificado(partes[1]);
       if (!usuario) return enviarJSON(res, 404, { error: "Usuario no registrado" });
       return enviarJSON(res, 200, { usuario });
     }

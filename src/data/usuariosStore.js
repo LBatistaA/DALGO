@@ -7,6 +7,12 @@ async function registrar({ id, nombre, telefono }) {
   const snap = await ref.get();
   const existente = snap.exists ? snap.data() : null;
 
+  // Si cambia el número de teléfono respecto al que ya tenía guardado,
+  // la verificación anterior deja de servir — hay que verificar el
+  // nuevo número desde cero.
+  const telefonoCambio =
+    telefono && existente && existente.telefono && telefono !== existente.telefono;
+
   const datos = {
     id,
     nombre: nombre || (existente ? existente.nombre || null : null),
@@ -14,9 +20,12 @@ async function registrar({ id, nombre, telefono }) {
     tieneFotoPerfil: existente ? !!existente.tieneFotoPerfil : false,
     moviCoins: existente ? existente.moviCoins || 0 : 0,
     viajesCompletados: existente ? existente.viajesCompletados || 0 : 0,
-    // 'comun' = consumidor normal; 'negocio' = aliado (pide deliveries
-    // de lo que ya vendió). Por defecto todos entran como 'comun'.
     tipoUsuario: existente ? existente.tipoUsuario || "comun" : "comun",
+    telefonoVerificado: telefonoCambio
+      ? false
+      : existente
+      ? !!existente.telefonoVerificado
+      : false,
   };
 
   await ref.set(datos, { merge: true });
@@ -108,6 +117,31 @@ async function actualizarTipo(id, tipoUsuario) {
   return { ...snap.data(), tipoUsuario };
 }
 
+// El cliente ya completó la verificación por SMS con Firebase del lado
+// de la app — aquí solo queda el registro de que ese número específico
+// quedó confirmado.
+async function marcarTelefonoVerificado(id) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.update({ telefonoVerificado: true });
+  return { ...snap.data(), telefonoVerificado: true };
+}
+
+// Busca un usuario por su teléfono — SOLO cuenta si ese número ya está
+// verificado, para que nadie pueda vincular un pedido al número de
+// otra persona sin que esa persona lo haya confirmado antes.
+// Un solo .where() (por teléfono) y el resto se filtra en código, para
+// no arriesgar necesitar un índice compuesto en Firestore.
+async function buscarPorTelefonoVerificado(telefono) {
+  if (!telefono) return null;
+  const snap = await db.collection(COLECCION).where("telefono", "==", telefono).get();
+  const encontrado = snap.docs
+    .map((d) => d.data())
+    .find((u) => u.telefonoVerificado === true);
+  return encontrado || null;
+}
+
 module.exports = {
   registrar,
   obtener,
@@ -116,4 +150,6 @@ module.exports = {
   agregarMoviCoins,
   agregarCalificacion,
   actualizarTipo,
+  marcarTelefonoVerificado,
+  buscarPorTelefonoVerificado,
 };

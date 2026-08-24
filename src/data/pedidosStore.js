@@ -26,6 +26,9 @@ async function crear({
   tipoVehiculo,
   candidatos,
   usuarioId,
+  creadoPorId,
+  nombreCliente,
+  telefonoCliente,
 }) {
   const id = String(await _siguienteId());
   const pedido = {
@@ -41,6 +44,12 @@ async function crear({
     descartadoPor: [], // IDs de conductores que lo rechazaron
     conductorId: null, // se llena cuando alguien lo acepta
     usuarioId: usuarioId || null, // quién pidió el servicio (para MoviCoins)
+    // Si un aliado pidió el delivery a nombre de su cliente final, aquí
+    // queda quién lo creó realmente (el aliado) — usuarioId en ese caso
+    // es el cliente, para que sea él quien pueda seguirlo en su app.
+    creadoPorId: creadoPorId || null,
+    nombreCliente: nombreCliente || null,
+    telefonoCliente: telefonoCliente || null,
     // buscando_conductor | confirmado | completado
     estado: "buscando_conductor",
     creadoEn: new Date().toISOString(),
