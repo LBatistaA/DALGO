@@ -13,13 +13,24 @@ async function _siguienteId() {
   });
 }
 
-async function crear({ nombre, descripcion, categoria, icono, telefono, lat, lng }) {
+async function crear({
+  nombre,
+  descripcion,
+  categoria,
+  tipoCategoria,
+  icono,
+  telefono,
+  lat,
+  lng,
+}) {
   const id = String(await _siguienteId());
   const restaurante = {
     id,
     nombre,
     descripcion: descripcion || null,
-    categoria: categoria || null,
+    categoria: categoria || null, // detalle específico, ej. "Repostería"
+    // Restaurantes | Supermercados | Farmacias — para filtrar en la app
+    tipoCategoria: tipoCategoria || "Restaurantes",
     icono: icono || null, // nombre de ícono a mostrar (ej. "tools-kitchen-2")
     telefono: telefono || null, // para el botón "Pedir por WhatsApp"
     lat: lat != null ? Number(lat) : null, // para calcular el delivery
