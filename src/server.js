@@ -110,9 +110,13 @@ const server = http.createServer(async (req, res) => {
       const uid = await verificarToken(req);
       if (!uid) return noAutorizado(res);
       const body = await leerCuerpo(req);
-      const { origen, destino } = body;
+      const { origen, destino, tipoServicio } = body;
       if (!origen || !destino) {
         return enviarJSON(res, 400, { error: "Faltan datos: origen y destino son requeridos" });
+      }
+      if (tipoServicio === "delivery") {
+        const delivery = calcularTarifa("delivery", origen, destino);
+        return enviarJSON(res, 200, { delivery });
       }
       const carro = calcularTarifa("carrera", origen, destino, "carro");
       const moto = calcularTarifa("carrera", origen, destino, "moto");
