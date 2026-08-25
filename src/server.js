@@ -292,6 +292,32 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { pedido });
     }
 
+    // GET /pedido/tracking/:numeroTracking — le permite al Aliado ver
+    // el costo real ANTES de comprometerse a buscar conductor, incluso
+    // usando el atajo de tracking (donde no eligió direcciones él
+    // mismo). Solo funciona mientras el pedido siga "procesando".
+    if (
+      req.method === "GET" &&
+      partes[0] === "pedido" &&
+      partes[1] === "tracking" &&
+      partes.length === 3
+    ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      const pedido = await pedidosStore.buscarPorTracking(partes[2]);
+      if (!pedido) {
+        return enviarJSON(res, 404, { error: "No se encontró ese número de tracking" });
+      }
+      if (pedido.estado !== "procesando") {
+        return enviarJSON(res, 400, { error: "Este pedido ya fue procesado antes" });
+      }
+      const tarifa = calcularTarifa("delivery", pedido.origen, pedido.destino);
+      return enviarJSON(res, 200, {
+        tarifa,
+        restauranteNombre: pedido.restauranteNombre,
+      });
+    }
+
     // GET /pedido/:id — cualquiera de los involucrados puede consultarlo;
     // basta con estar autenticado (no hace falta ser específicamente uno
     // de los dos, porque un conductor candidato también necesita verlo
