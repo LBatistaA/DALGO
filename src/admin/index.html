@@ -584,9 +584,16 @@
       <label class="etiquetaCampo">Ícono</label>
       <select id="campoIcono">
         <option value="storefront">Genérico (tienda)</option>
-        <option value="cake">Torta / repostería</option>
-        <option value="pizza">Pizza</option>
         <option value="tools-kitchen-2">Restaurante</option>
+        <option value="pizza">Pizza</option>
+        <option value="burger">Hamburguesa</option>
+        <option value="asian">Comida asiática</option>
+        <option value="cake">Panadería / repostería</option>
+        <option value="icecream">Heladería / postres fríos</option>
+        <option value="cafe">Café</option>
+        <option value="pharmacy">Farmacia</option>
+        <option value="market">Supermercado / víveres</option>
+        <option value="beauty">Belleza / cuidado personal</option>
       </select>
 
       <label class="etiquetaCampo">Teléfono (WhatsApp)</label>
@@ -767,7 +774,18 @@ function renderizarListaAliados() {
 }
 
 function iconoEmoji(nombreIcono) {
-  const mapa = { cake: '🎂', pizza: '🍕', 'tools-kitchen-2': '🍽️' };
+  const mapa = {
+    cake: '🎂',
+    pizza: '🍕',
+    'tools-kitchen-2': '🍽️',
+    burger: '🍔',
+    asian: '🍜',
+    icecream: '🍦',
+    cafe: '☕',
+    pharmacy: '💊',
+    market: '🛒',
+    beauty: '💅',
+  };
   return mapa[nombreIcono] || '🏪';
 }
 
