@@ -465,6 +465,7 @@
       <button class="botonPestana" id="pestanaEnVivo" onclick="cambiarSeccion('envivo')">🔴 En vivo</button>
       <button class="botonPestana activa" id="pestanaAliados" onclick="cambiarSeccion('aliados')">Aliados</button>
       <button class="botonPestana" id="pestanaPedidos" onclick="cambiarSeccion('pedidos')">Pedidos</button>
+      <button class="botonPestana" id="pestanaConductores" onclick="cambiarSeccion('conductores')">Conductores</button>
     </div>
 
     <!-- ===== SECCIÓN EN VIVO ===== -->
@@ -540,6 +541,15 @@
       <input type="text" class="buscadorPedidos" id="buscadorTracking" placeholder="Buscar por número de tracking (Ej. MOVI-7F3K2A)" oninput="renderizarListaPedidos()">
 
       <div id="listaPedidos"><div class="cargando">Cargando...</div></div>
+    </div>
+
+    <!-- ===== SECCIÓN CONDUCTORES ===== -->
+    <div id="seccionConductoresMain" style="display:none">
+      <div class="filaEncabezadoSeccion">
+        <h2>Conductores</h2>
+      </div>
+      <div class="filaChips" id="chipsFiltroConductores"></div>
+      <div id="listaConductores"><div class="cargando">Cargando...</div></div>
     </div>
   </main>
 </div>
@@ -950,12 +960,17 @@ function cambiarSeccion(seccion) {
   document.getElementById('pestanaEnVivo').classList.toggle('activa', seccion === 'envivo');
   document.getElementById('pestanaAliados').classList.toggle('activa', seccion === 'aliados');
   document.getElementById('pestanaPedidos').classList.toggle('activa', seccion === 'pedidos');
+  document.getElementById('pestanaConductores').classList.toggle('activa', seccion === 'conductores');
   document.getElementById('seccionEnVivoMain').style.display = seccion === 'envivo' ? 'block' : 'none';
   document.getElementById('seccionAliadosMain').style.display = seccion === 'aliados' ? 'block' : 'none';
   document.getElementById('seccionPedidosMain').style.display = seccion === 'pedidos' ? 'block' : 'none';
+  document.getElementById('seccionConductoresMain').style.display = seccion === 'conductores' ? 'block' : 'none';
 
   if (seccion === 'pedidos' && !pedidosYaCargados) {
     cargarPedidos();
+  }
+  if (seccion === 'conductores') {
+    cargarConductores();
   }
 
   clearInterval(temporizadorEnVivo);
@@ -1363,6 +1378,85 @@ async function cargarConductoresMapa() {
 
 // Por si Google Maps ya había terminado de cargar antes de llegar aquí
 if (window.mapaGoogleListo) window.crearMapaConductores();
+
+// ===== Conductores =====
+let conductores = [];
+let filtroConductorActual = 'Pendientes';
+const FILTROS_CONDUCTORES = ['Pendientes', 'Aprobados', 'Rechazados', 'Todos'];
+
+async function cargarConductores() {
+  const contenedor = document.getElementById('listaConductores');
+  try {
+    conductores = await llamarAPI('GET', '/conductores');
+    renderizarChipsConductores();
+    renderizarListaConductores();
+  } catch (e) {
+    contenedor.innerHTML = `<div class="estadoVacio">No se pudo cargar: ${e.message}</div>`;
+  }
+}
+
+function renderizarChipsConductores() {
+  const contenedor = document.getElementById('chipsFiltroConductores');
+  contenedor.innerHTML = FILTROS_CONDUCTORES.map(f => `
+    <button class="chipFiltro ${filtroConductorActual === f ? 'activo' : ''}" onclick="cambiarFiltroConductor('${f}')">${f}</button>
+  `).join('');
+}
+
+function cambiarFiltroConductor(filtro) {
+  filtroConductorActual = filtro;
+  renderizarChipsConductores();
+  renderizarListaConductores();
+}
+
+function renderizarListaConductores() {
+  const contenedor = document.getElementById('listaConductores');
+  const mapaFiltro = { Pendientes: 'pendiente', Aprobados: 'aprobado', Rechazados: 'rechazado' };
+  let filtrados = conductores;
+  if (mapaFiltro[filtroConductorActual]) {
+    filtrados = conductores.filter(c => c.estadoVerificacion === mapaFiltro[filtroConductorActual]);
+  }
+
+  if (filtrados.length === 0) {
+    contenedor.innerHTML = '<div class="estadoVacio">No hay conductores en este filtro.</div>';
+    return;
+  }
+
+  contenedor.innerHTML = filtrados.map(c => {
+    const colorEstado = c.estadoVerificacion === 'aprobado'
+      ? { bg: '#DCFCE7', texto: '#16A34A' }
+      : c.estadoVerificacion === 'rechazado'
+        ? { bg: '#FEE2E2', texto: '#DC2626' }
+        : { bg: '#FEF3C7', texto: '#B45309' };
+    return `
+      <div class="tarjetaAliado" style="cursor:default">
+        <div class="iconoAliado">${c.tipoVehiculo === 'moto' ? '🏍️' : '🚗'}</div>
+        <div class="infoAliado">
+          <div class="nombreAliado">${escaparHTML(c.nombre || 'Sin nombre')}</div>
+          <div class="metaAliado">${escaparHTML(c.telefono || '')}${c.placa ? ' · ' + escaparHTML(c.placa) : ''}</div>
+        </div>
+        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px">
+          <div class="insigniaEstado" style="background:${colorEstado.bg}; color:${colorEstado.texto}">${c.estadoVerificacion}</div>
+          ${c.estadoVerificacion === 'pendiente' ? `
+            <div style="display:flex; gap:6px">
+              <button class="botonExportar" style="padding:5px 12px; color:#16A34A; border-color:#16A34A" onclick="verificarConductor('${c.id}', true)">✓ Aprobar</button>
+              <button class="botonExportar" style="padding:5px 12px; color:#DC2626; border-color:#DC2626" onclick="verificarConductor('${c.id}', false)">✕ Rechazar</button>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function verificarConductor(id, aprobado) {
+  if (!confirm(aprobado ? '¿Aprobar a este conductor?' : '¿Rechazar a este conductor?')) return;
+  try {
+    await llamarAPI('POST', `/conductor/${id}/verificar`, { aprobado });
+    await cargarConductores();
+  } catch (e) {
+    alert('No se pudo actualizar: ' + e.message);
+  }
+}
 </script>
 
 </body>
