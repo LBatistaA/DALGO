@@ -24,7 +24,12 @@ function leerCuerpo(req) {
 }
 
 function enviarJSON(res, status, payload) {
-  res.writeHead(status, { "Content-Type": "application/json" });
+  res.writeHead(status, {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Admin-Secret",
+  });
   res.end(JSON.stringify(payload));
 }
 
@@ -103,6 +108,19 @@ function infoPublicaUsuario(u) {
 
 const server = http.createServer(async (req, res) => {
   const partes = segmentos(req.url);
+
+  // El navegador manda esta petición "de prueba" antes de la real,
+  // cuando la página que llama vive en otro origen (ej. el panel de
+  // administrador abierto como archivo local) — solo hay que
+  // responder que sí se permite, sin ejecutar ninguna ruta.
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Admin-Secret",
+    });
+    return res.end();
+  }
 
   try {
     // POST /cotizar
@@ -923,10 +941,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     // GET /restaurantes — lista de aliados activos, para que el usuario
-    // los vea en la app (cualquiera autenticado puede verlos)
+    // los vea en la app (cualquiera autenticado puede verlos); el
+    // panel de administrador también entra aquí, con su propia clave
+    // en vez de una sesión de Firebase.
     if (req.method === "GET" && req.url === "/restaurantes") {
-      const uid = await verificarToken(req);
-      if (!uid) return noAutorizado(res);
+      if (!esAdmin(req)) {
+        const uid = await verificarToken(req);
+        if (!uid) return noAutorizado(res);
+      }
       const restaurantes = await restaurantesStore.obtenerTodos();
       return enviarJSON(res, 200, { restaurantes });
     }
@@ -937,8 +959,10 @@ const server = http.createServer(async (req, res) => {
       partes[0] === "restaurantes" &&
       partes.length === 2
     ) {
-      const uid = await verificarToken(req);
-      if (!uid) return noAutorizado(res);
+      if (!esAdmin(req)) {
+        const uid = await verificarToken(req);
+        if (!uid) return noAutorizado(res);
+      }
       const restaurante = await restaurantesStore.obtener(partes[1]);
       if (!restaurante) return enviarJSON(res, 404, { error: "Restaurante no encontrado" });
       const productos = await restaurantesStore.obtenerProductos(partes[1]);
