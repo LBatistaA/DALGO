@@ -467,9 +467,26 @@ const server = http.createServer(async (req, res) => {
       if (!esAdmin(req)) return prohibido(res, "Solo un administrador puede hacer esto");
       const body = await leerCuerpo(req);
       const estado = body.aprobado ? "aprobado" : "rechazado";
-      const conductor = await conductoresStore.actualizarVerificacion(partes[1], estado);
+      const conductor = await conductoresStore.actualizarVerificacion(
+        partes[1],
+        estado,
+        body.motivo
+      );
       if (!conductor) return enviarJSON(res, 404, { error: "Conductor no registrado" });
       return enviarJSON(res, 200, { conductor });
+    }
+
+    // GET /conductor/:id/documentos — SOLO administrador. Las 4 fotos
+    // que subió (licencia, cédula, papeles del vehículo, foto del
+    // vehículo), para revisarlas antes de aprobar o rechazar.
+    if (
+      req.method === "GET" &&
+      partes[0] === "conductor" &&
+      partes[2] === "documentos"
+    ) {
+      if (!esAdmin(req)) return prohibido(res, "Solo un administrador puede hacer esto");
+      const documentos = await conductoresStore.obtenerDocumentos(partes[1]);
+      return enviarJSON(res, 200, { documentos });
     }
 
     // GET /conductor/:id — datos completos si es él mismo consultando,
@@ -1006,6 +1023,18 @@ const server = http.createServer(async (req, res) => {
       const restaurante = await restaurantesStore.actualizar(partes[1], body);
       if (!restaurante) return enviarJSON(res, 404, { error: "Restaurante no encontrado" });
       return enviarJSON(res, 200, { restaurante });
+    }
+
+    // DELETE /restaurantes/:id — SOLO administrador. Borra el Aliado
+    // completo, junto con todos sus productos.
+    if (
+      req.method === "DELETE" &&
+      partes[0] === "restaurantes" &&
+      partes.length === 2
+    ) {
+      if (!esAdmin(req)) return prohibido(res, "Solo un administrador puede hacer esto");
+      await restaurantesStore.eliminar(partes[1]);
+      return enviarJSON(res, 200, { eliminado: true });
     }
 
     // POST /restaurantes/:id/productos — SOLO administrador

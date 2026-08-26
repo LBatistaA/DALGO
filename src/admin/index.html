@@ -627,6 +627,7 @@
 
     <div class="errorTexto" id="errorFormulario"></div>
     <button class="botonPildora botonNaranja anchoCompleto" id="botonGuardarAliado" onclick="guardarAliado()">Guardar</button>
+    <button class="botonPildora botonContornoRojo anchoCompleto" id="botonEliminarAliado" style="display:none; margin-top:10px" onclick="eliminarAliado()">Eliminar Aliado</button>
 
     <!-- Productos — solo aparece cuando se está editando un aliado existente -->
     <div id="seccionProductos" style="display:none; margin-top:28px">
@@ -672,6 +673,25 @@
   </div>
   <div class="cuerpoPanel">
     <div class="tarjetaBlanca" id="contenidoDetallePedido"></div>
+  </div>
+</div>
+
+<!-- ===== PANEL LATERAL: detalle de conductor (fotos + aprobar/rechazar) ===== -->
+<div class="fondoOscurecido" id="fondoOscurecidoConductor" onclick="cerrarPanelConductor()"></div>
+<div class="panelLateral" id="panelLateralConductor" style="display:none">
+  <div class="encabezadoPanel">
+    <h3 id="nombreDetalleConductor">Conductor</h3>
+    <button class="botonCerrarPanel" onclick="cerrarPanelConductor()">&times;</button>
+  </div>
+  <div class="cuerpoPanel">
+    <div class="tarjetaBlanca">
+      <div class="notaAyuda" id="metaDetalleConductor" style="margin-bottom:14px"></div>
+      <div style="display:flex; gap:10px" id="accionesDetalleConductor"></div>
+    </div>
+    <div class="tarjetaBlanca">
+      <h3 style="margin:0 0 12px; font-size:15px">Documentos</h3>
+      <div id="fotosDetalleConductor"></div>
+    </div>
   </div>
 </div>
 
@@ -812,6 +832,7 @@ function abrirFormularioAliado(id) {
   document.getElementById('campoActivo').checked = aliadoEditando?.activo !== false;
 
   document.getElementById('seccionProductos').style.display = aliadoEditando ? 'block' : 'none';
+  document.getElementById('botonEliminarAliado').style.display = aliadoEditando ? 'block' : 'none';
   ocultarFormularioProducto();
   if (aliadoEditando) cargarProductos(aliadoEditando.id);
 
@@ -851,6 +872,28 @@ document.getElementById('campoLinkMaps').addEventListener('input', (e) => {
     nota.style.color = 'var(--texto-suave)';
   }
 });
+
+async function eliminarAliado() {
+  if (!aliadoEditando) return;
+  const confirmacion = prompt(
+    `Esto borra "${aliadoEditando.nombre}" y todos sus productos, sin poder deshacerlo. Escribe ELIMINAR para confirmar:`
+  );
+  if (confirmacion !== 'ELIMINAR') return;
+
+  const boton = document.getElementById('botonEliminarAliado');
+  boton.disabled = true;
+  boton.textContent = 'Eliminando...';
+  try {
+    await llamarAPI('DELETE', `/restaurantes/${aliadoEditando.id}`);
+    await cargarAliados();
+    cerrarPanel();
+  } catch (e) {
+    alert('No se pudo eliminar: ' + e.message);
+  } finally {
+    boton.disabled = false;
+    boton.textContent = 'Eliminar Aliado';
+  }
+}
 
 async function guardarAliado() {
   const nombre = document.getElementById('campoNombre').value.trim();
@@ -1503,7 +1546,7 @@ function renderizarListaConductores() {
         ? { bg: '#FEE2E2', texto: '#DC2626' }
         : { bg: '#FEF3C7', texto: '#B45309' };
     return `
-      <div class="tarjetaAliado" style="cursor:default">
+      <div class="tarjetaAliado" onclick="abrirDetalleConductor('${c.id}')">
         <div class="iconoAliado">${c.tipoVehiculo === 'moto' ? '🏍️' : '🚗'}</div>
         <div class="infoAliado">
           <div class="nombreAliado">
@@ -1512,28 +1555,84 @@ function renderizarListaConductores() {
           </div>
           <div class="metaAliado">${c.enLinea ? 'En línea' : 'Desconectado'}${c.telefono ? ' · ' + escaparHTML(c.telefono) : ''}${c.placa ? ' · ' + escaparHTML(c.placa) : ''}</div>
         </div>
-        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px">
-          <div class="insigniaEstado" style="background:${colorEstado.bg}; color:${colorEstado.texto}">${c.estadoVerificacion}</div>
-          ${c.estadoVerificacion === 'pendiente' ? `
-            <div style="display:flex; gap:6px">
-              <button class="botonExportar" style="padding:5px 12px; color:#16A34A; border-color:#16A34A" onclick="verificarConductor('${c.id}', true)">✓ Aprobar</button>
-              <button class="botonExportar" style="padding:5px 12px; color:#DC2626; border-color:#DC2626" onclick="verificarConductor('${c.id}', false)">✕ Rechazar</button>
-            </div>
-          ` : ''}
-        </div>
+        <div class="insigniaEstado" style="background:${colorEstado.bg}; color:${colorEstado.texto}">${c.estadoVerificacion}</div>
       </div>
     `;
   }).join('');
 }
 
 async function verificarConductor(id, aprobado) {
-  if (!confirm(aprobado ? '¿Aprobar a este conductor?' : '¿Rechazar a este conductor?')) return;
+  let motivo = null;
+  if (aprobado) {
+    if (!confirm('¿Aprobar a este conductor?')) return;
+  } else {
+    motivo = prompt('¿Por qué lo estás rechazando? Esto se lo va a mostrar en su app.');
+    if (motivo === null) return; // canceló
+    if (!motivo.trim()) {
+      alert('Escribe un motivo — así el conductor sabe qué corregir.');
+      return;
+    }
+  }
   try {
-    await llamarAPI('POST', `/conductor/${id}/verificar`, { aprobado });
+    await llamarAPI('POST', `/conductor/${id}/verificar`, { aprobado, motivo });
     await cargarConductores();
+    cerrarPanelConductor();
   } catch (e) {
     alert('No se pudo actualizar: ' + e.message);
   }
+}
+
+// ===== Detalle de conductor — fotos de sus documentos =====
+async function abrirDetalleConductor(id) {
+  const c = conductores.find(x => x.id === id);
+  if (!c) return;
+
+  document.getElementById('nombreDetalleConductor').textContent = c.nombre || 'Conductor';
+  document.getElementById('metaDetalleConductor').textContent =
+    `${c.telefono || '—'} · ${c.placa || 'sin placa'} · ${c.colorVehiculo || ''} ${c.tipoVehiculo || ''}`;
+
+  const contenedorAcciones = document.getElementById('accionesDetalleConductor');
+  contenedorAcciones.innerHTML = c.estadoVerificacion === 'pendiente'
+    ? `
+      <button class="botonPildora botonContornoRojo" style="flex:1" onclick="verificarConductor('${c.id}', false)">✕ Rechazar</button>
+      <button class="botonPildora botonVerde" style="flex:1" onclick="verificarConductor('${c.id}', true)">✓ Aprobar</button>
+    `
+    : `<div class="insigniaEstado" style="background:${c.estadoVerificacion === 'aprobado' ? '#DCFCE7' : '#FEE2E2'}; color:${c.estadoVerificacion === 'aprobado' ? '#16A34A' : '#DC2626'}">${c.estadoVerificacion}</div>`;
+
+  const contenedorFotos = document.getElementById('fotosDetalleConductor');
+  contenedorFotos.innerHTML = '<div class="cargando">Cargando fotos...</div>';
+
+  document.getElementById('fondoOscurecidoConductor').style.display = 'block';
+  document.getElementById('panelLateralConductor').style.display = 'block';
+
+  try {
+    const datos = await llamarAPI('GET', `/conductor/${id}/documentos`);
+    const doc = datos.documentos || {};
+    const etiquetas = {
+      cedula: 'Cédula',
+      licencia: 'Licencia de conducir',
+      papelesVehiculo: 'Papeles del vehículo',
+      fotoVehiculo: 'Foto del vehículo',
+    };
+    const conFoto = Object.keys(etiquetas).filter(k => doc[k]);
+    if (conFoto.length === 0) {
+      contenedorFotos.innerHTML = '<div class="notaAyuda">Todavía no ha subido ninguna foto.</div>';
+      return;
+    }
+    contenedorFotos.innerHTML = conFoto.map(k => `
+      <div style="margin-bottom:16px">
+        <div class="notaAyuda" style="margin-bottom:6px; font-weight:600">${etiquetas[k]}</div>
+        <img src="${doc[k]}" style="width:100%; border-radius:12px; display:block" />
+      </div>
+    `).join('');
+  } catch (e) {
+    contenedorFotos.innerHTML = `<div class="notaAyuda">No se pudieron cargar las fotos: ${e.message}</div>`;
+  }
+}
+
+function cerrarPanelConductor() {
+  document.getElementById('fondoOscurecidoConductor').style.display = 'none';
+  document.getElementById('panelLateralConductor').style.display = 'none';
 }
 </script>
 

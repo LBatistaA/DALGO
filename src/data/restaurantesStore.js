@@ -107,6 +107,20 @@ async function eliminarProducto(restauranteId, productoId) {
     .delete();
 }
 
+// Borra el restaurante y todos sus productos — no se puede deshacer,
+// por eso el panel pide confirmación antes de llamar a esto.
+async function eliminar(id) {
+  const productosSnap = await db
+    .collection(COLECCION)
+    .doc(id)
+    .collection("productos")
+    .get();
+  const lote = db.batch();
+  productosSnap.docs.forEach((doc) => lote.delete(doc.ref));
+  lote.delete(db.collection(COLECCION).doc(id));
+  await lote.commit();
+}
+
 module.exports = {
   crear,
   obtenerTodos,
@@ -116,4 +130,5 @@ module.exports = {
   obtenerProductos,
   actualizarProducto,
   eliminarProducto,
+  eliminar,
 };

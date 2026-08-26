@@ -93,12 +93,13 @@ async function obtenerDocumentos(id) {
   };
 }
 
-async function actualizarVerificacion(id, estado) {
+async function actualizarVerificacion(id, estado, motivoRechazo) {
   const ref = db.collection(COLECCION).doc(id);
   const snap = await ref.get();
   if (!snap.exists) return null;
-  await ref.update({ estadoVerificacion: estado });
-  return { ...snap.data(), estadoVerificacion: estado };
+  const cambios = { estadoVerificacion: estado, motivoRechazo: motivoRechazo || null };
+  await ref.update(cambios);
+  return { ...snap.data(), ...cambios };
 }
 
 async function actualizarUbicacion(id, lat, lng) {
