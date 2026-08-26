@@ -1366,20 +1366,7 @@ async function cargarConductoresMapa() {
           position: { lat: c.lat, lng: c.lng },
           map: mapaConductores,
           title: `${c.nombre || 'Conductor'}${c.enLinea ? ' (en línea)' : ' (desconectado)'}`,
-          label: {
-            text: primerNombre,
-            color: 'white',
-            fontSize: '10px',
-            fontWeight: '700',
-          },
-          icon: {
-            path: google.maps.SymbolPath.CIRCLE,
-            scale: 18,
-            fillColor: '#1E58FF',
-            fillOpacity: 1,
-            strokeWeight: 3,
-            strokeColor: c.enLinea ? '#22C55E' : '#9CA3AF',
-          },
+          icon: crearIconoConductorMOVI(primerNombre, c.enLinea),
         });
         marcadoresConductores.push(marcador);
       });
@@ -1412,6 +1399,33 @@ async function cargarConductoresMapa() {
   } catch (e) {
     console.error('No se pudieron cargar los conductores en el mapa:', e);
   }
+}
+
+// Placa con el logo M.O.V.I (círculo azul + "M" + punto naranja, igual
+// que el estilo de letras de toda la app) y el nombre del conductor al
+// lado — el ancho se ajusta solo según cuántas letras tenga el nombre.
+function crearIconoConductorMOVI(nombre, enLinea) {
+  const nombreEscapado = escaparHTML(nombre);
+  const anchoTexto = Math.max(30, nombre.length * 7);
+  const anchoTotal = 44 + anchoTexto + 24;
+  const colorEstado = enLinea ? '#22C55E' : '#9CA3AF';
+
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${anchoTotal}" height="36" viewBox="0 0 ${anchoTotal} 36">
+      <rect x="1" y="1" width="${anchoTotal - 2}" height="34" rx="17" fill="white" stroke="#E5E7EB" stroke-width="1.5"/>
+      <circle cx="18" cy="18" r="14" fill="#1E58FF"/>
+      <text x="18" y="23" font-family="Arial, sans-serif" font-size="15" font-weight="900" fill="white" text-anchor="middle">M</text>
+      <circle cx="27" cy="8" r="3.5" fill="#FF8A00"/>
+      <text x="40" y="23" font-family="Arial, sans-serif" font-size="12" font-weight="600" fill="#111827">${nombreEscapado}</text>
+      <circle cx="${anchoTotal - 14}" cy="18" r="5" fill="${colorEstado}" stroke="white" stroke-width="1.5"/>
+    </svg>
+  `;
+
+  return {
+    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+    scaledSize: new google.maps.Size(anchoTotal, 36),
+    anchor: new google.maps.Point(18, 18),
+  };
 }
 
 function emojiCategoriaAliado(tipoCategoria) {
@@ -1474,8 +1488,11 @@ function renderizarListaConductores() {
       <div class="tarjetaAliado" style="cursor:default">
         <div class="iconoAliado">${c.tipoVehiculo === 'moto' ? '🏍️' : '🚗'}</div>
         <div class="infoAliado">
-          <div class="nombreAliado">${escaparHTML(c.nombre || 'Sin nombre')}</div>
-          <div class="metaAliado">${escaparHTML(c.telefono || '')}${c.placa ? ' · ' + escaparHTML(c.placa) : ''}</div>
+          <div class="nombreAliado">
+            <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${c.enLinea ? '#22C55E' : '#9CA3AF'}; margin-right:6px"></span>
+            ${escaparHTML(c.nombre || 'Sin nombre')}
+          </div>
+          <div class="metaAliado">${c.enLinea ? 'En línea' : 'Desconectado'}${c.telefono ? ' · ' + escaparHTML(c.telefono) : ''}${c.placa ? ' · ' + escaparHTML(c.placa) : ''}</div>
         </div>
         <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px">
           <div class="insigniaEstado" style="background:${colorEstado.bg}; color:${colorEstado.texto}">${c.estadoVerificacion}</div>
