@@ -172,6 +172,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
     margin-bottom: 18px;
   }
   .filaEncabezadoSeccion h2 { margin: 0; font-size: 19px; }
@@ -276,7 +278,11 @@
     display: flex;
     gap: 8px;
     margin-bottom: 24px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
   }
+  .navPestanas::-webkit-scrollbar { display: none; }
   .botonPestana {
     background: none;
     border: none;
@@ -287,6 +293,8 @@
     cursor: pointer;
     font-family: inherit;
     color: var(--texto-suave);
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   .botonPestana.activa { background: var(--azul); color: white; }
 
@@ -296,12 +304,7 @@
     width: 8px; height: 8px;
     border-radius: 50%;
     background: #EF4444;
-    animation: parpadeo 1.6s ease-in-out infinite;
     margin-right: 6px;
-  }
-  @keyframes parpadeo {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
   }
 
   .filaMeta {
@@ -491,6 +494,7 @@
           <div style="display:flex; gap:14px; font-size:11px; color:var(--texto-suave)">
             <span>🟢 En línea</span>
             <span>⚪ Desconectado</span>
+            <span>🏪 Aliados</span>
           </div>
         </div>
         <div id="mapaConductores" style="height:320px; border-radius:12px; background:var(--gris-fondo)"></div>
@@ -1327,6 +1331,7 @@ function exportarCSV() {
 // ===== Mapa de conductores =====
 let mapaConductores = null;
 let marcadoresConductores = [];
+let marcadoresAliadosMapa = [];
 
 window.crearMapaConductores = function () {
   const contenedor = document.getElementById('mapaConductores');
@@ -1371,9 +1376,40 @@ async function cargarConductoresMapa() {
         });
         marcadoresConductores.push(marcador);
       });
+
+    const aliadosMapa = await llamarAPI('GET', '/restaurantes');
+    marcadoresAliadosMapa.forEach(m => m.setMap(null));
+    marcadoresAliadosMapa = [];
+    (aliadosMapa.restaurantes || [])
+      .filter(a => a.lat != null && a.lng != null)
+      .forEach(a => {
+        const marcador = new google.maps.Marker({
+          position: { lat: a.lat, lng: a.lng },
+          map: mapaConductores,
+          title: `${a.nombre || 'Aliado'} (${a.tipoCategoria || 'Aliado'})`,
+          label: {
+            text: emojiCategoriaAliado(a.tipoCategoria),
+            fontSize: '16px',
+          },
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 14,
+            fillColor: '#FFFFFF',
+            fillOpacity: 1,
+            strokeWeight: 2,
+            strokeColor: '#FF8A00',
+          },
+        });
+        marcadoresAliadosMapa.push(marcador);
+      });
   } catch (e) {
     console.error('No se pudieron cargar los conductores en el mapa:', e);
   }
+}
+
+function emojiCategoriaAliado(tipoCategoria) {
+  const mapa = { Restaurantes: '🍽️', Supermercados: '🛒', Farmacias: '💊' };
+  return mapa[tipoCategoria] || '🏪';
 }
 
 // Por si Google Maps ya había terminado de cargar antes de llegar aquí
