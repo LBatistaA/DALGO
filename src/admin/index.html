@@ -1361,17 +1361,24 @@ async function cargarConductoresMapa() {
     conductores
       .filter(c => c.lat != null && c.lng != null)
       .forEach(c => {
+        const primerNombre = (c.nombre || 'Conductor').trim().split(' ')[0];
         const marcador = new google.maps.Marker({
           position: { lat: c.lat, lng: c.lng },
           map: mapaConductores,
           title: `${c.nombre || 'Conductor'}${c.enLinea ? ' (en línea)' : ' (desconectado)'}`,
+          label: {
+            text: primerNombre,
+            color: 'white',
+            fontSize: '10px',
+            fontWeight: '700',
+          },
           icon: {
             path: google.maps.SymbolPath.CIRCLE,
-            scale: 8,
-            fillColor: c.enLinea ? '#22C55E' : '#9CA3AF',
+            scale: 18,
+            fillColor: '#1E58FF',
             fillOpacity: 1,
-            strokeWeight: 2,
-            strokeColor: 'white',
+            strokeWeight: 3,
+            strokeColor: c.enLinea ? '#22C55E' : '#9CA3AF',
           },
         });
         marcadoresConductores.push(marcador);
