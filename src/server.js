@@ -1,4 +1,6 @@
 const http = require("http");
+const fs = require("fs");
+const path = require("path");
 const { calcularTarifa } = require("./services/fareService");
 const { buscarCandidatos } = require("./services/dispatchService");
 const { distanciaKm } = require("./utils/geo");
@@ -8,6 +10,13 @@ const usuariosStore = require("./data/usuariosStore");
 const restaurantesStore = require("./data/restaurantesStore");
 const fareConfig = require("./config/fareConfig");
 const { auth } = require("./firebaseAdmin");
+
+// Se lee una sola vez al arrancar — no en cada visita al panel, para
+// no leer el disco de más en cada petición.
+const HTML_PANEL_ADMIN = fs.readFileSync(
+  path.join(__dirname, "admin", "index.html"),
+  "utf-8"
+);
 
 function leerCuerpo(req) {
   return new Promise((resolve, reject) => {
@@ -120,6 +129,13 @@ const server = http.createServer(async (req, res) => {
       "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Admin-Secret",
     });
     return res.end();
+  }
+
+  // GET /admin — sirve el panel de administrador como página web,
+  // en vez de tener que abrir un archivo local.
+  if (req.method === "GET" && req.url === "/admin") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    return res.end(HTML_PANEL_ADMIN);
   }
 
   try {

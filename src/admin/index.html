@@ -1,0 +1,1369 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M.O.V.I — Panel de Administrador</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+  // Google Maps carga de forma asíncrona y llama a esta función cuando
+  // esté listo — puede pasar antes o después de que cargue el resto
+  // del script principal (más abajo), así que se avisan entre sí en
+  // vez de asumir un orden fijo.
+  function inicializarMapa() {
+    window.mapaGoogleListo = true;
+    if (window.crearMapaConductores) window.crearMapaConductores();
+  }
+</script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAxs4eagsnmGdlbxy0Sm8M8NcWTsRNDi7U&callback=inicializarMapa" async defer></script>
+<style>
+  :root {
+    --azul: #1E58FF;
+    --naranja: #FF8A00;
+    --verde: #22C55E;
+    --gris-fondo: #F2F4F7;
+    --texto: #111827;
+    --texto-suave: #6B7280;
+    --borde: #E5E7EB;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--gris-fondo);
+    color: var(--texto);
+  }
+
+  /* ===== Pantalla de acceso ===== */
+  #pantallaAcceso {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .tarjetaAcceso {
+    background: white;
+    border-radius: 20px;
+    padding: 40px 36px;
+    max-width: 380px;
+    width: 100%;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+    text-align: center;
+  }
+
+  .logoLetras {
+    font-size: 32px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+  }
+  .logoLetras span.punto { color: var(--naranja); }
+  .logoLetras span.letra { color: var(--azul); }
+
+  .subtituloAcceso {
+    color: var(--texto-suave);
+    font-size: 13px;
+    margin-bottom: 28px;
+  }
+
+  input[type="password"], input[type="text"], input[type="tel"], input[type="number"], select, textarea {
+    width: 100%;
+    padding: 12px 16px;
+    border: 1.5px solid var(--borde);
+    border-radius: 12px;
+    font-size: 14px;
+    font-family: inherit;
+    margin-bottom: 4px;
+    background: white;
+    color: var(--texto);
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--azul);
+  }
+
+  .etiquetaCampo {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--texto-suave);
+    margin: 14px 0 6px;
+    text-align: left;
+  }
+
+  .botonPildora {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 24px;
+    border-radius: 100px;
+    border: none;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: opacity 0.15s;
+  }
+  .botonPildora:hover { opacity: 0.88; }
+  .botonPildora:disabled { opacity: 0.5; cursor: not-allowed; }
+  .botonAzul { background: var(--azul); color: white; }
+  .botonNaranja { background: var(--naranja); color: white; }
+  .botonVerde { background: var(--verde); color: white; }
+  .botonContorno {
+    background: white;
+    color: var(--azul);
+    border: 1.5px solid var(--azul);
+  }
+  .botonContornoRojo {
+    background: white;
+    color: #DC2626;
+    border: 1.5px solid #FCA5A5;
+  }
+  .anchoCompleto { width: 100%; margin-top: 20px; }
+
+  .errorTexto {
+    color: #DC2626;
+    font-size: 13px;
+    margin-top: 10px;
+    display: none;
+  }
+
+  /* ===== App principal ===== */
+  #appPrincipal { display: none; min-height: 100vh; }
+
+  header {
+    background: var(--azul);
+    color: white;
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header .logoLetras .letra { color: white; }
+  header .logoLetras { font-size: 22px; }
+  .tituloHeader {
+    font-size: 13px;
+    opacity: 0.85;
+    margin-top: 2px;
+  }
+  .botonCerrarSesion {
+    background: rgba(255,255,255,0.15);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 100px;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  main {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 24px 20px 60px;
+  }
+
+  .filaEncabezadoSeccion {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+  }
+  .filaEncabezadoSeccion h2 { margin: 0; font-size: 19px; }
+
+  .tarjetaAliado {
+    background: white;
+    border-radius: 16px;
+    padding: 16px 18px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    cursor: pointer;
+    border: 1.5px solid transparent;
+    transition: border-color 0.15s;
+  }
+  .tarjetaAliado:hover { border-color: var(--azul); }
+
+  .iconoAliado {
+    width: 46px; height: 46px;
+    border-radius: 12px;
+    background: #FFF1E0;
+    color: var(--naranja);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+
+  .infoAliado { flex: 1; min-width: 0; }
+  .nombreAliado { font-weight: 700; font-size: 15px; }
+  .metaAliado { font-size: 12px; color: var(--texto-suave); margin-top: 2px; }
+
+  .insigniaEstado {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 100px;
+    flex-shrink: 0;
+  }
+  .insigniaActivo { background: #DCFCE7; color: #16A34A; }
+  .insigniaInactivo { background: #F3F4F6; color: #6B7280; }
+
+  .estadoVacio {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--texto-suave);
+  }
+
+  /* ===== Panel lateral (formulario) ===== */
+  .fondoOscurecido {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(17,24,39,0.45);
+    z-index: 10;
+  }
+
+  .panelLateral {
+    position: fixed;
+    top: 0; right: 0;
+    width: 440px;
+    max-width: 100%;
+    height: 100vh;
+    background: var(--gris-fondo);
+    z-index: 11;
+    overflow-y: auto;
+    box-shadow: -8px 0 24px rgba(0,0,0,0.12);
+  }
+
+  .encabezadoPanel {
+    background: var(--azul);
+    color: white;
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  .encabezadoPanel h3 { margin: 0; font-size: 17px; }
+  .botonCerrarPanel {
+    background: none; border: none; color: white;
+    font-size: 22px; cursor: pointer; line-height: 1;
+    padding: 4px;
+  }
+
+  .cuerpoPanel { padding: 20px 24px 40px; }
+
+  .tarjetaBlanca {
+    background: white;
+    border-radius: 14px;
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+
+  .filaDosColumnas { display: flex; gap: 12px; }
+  .filaDosColumnas > div { flex: 1; }
+
+  /* ===== Pestañas de navegación ===== */
+  .navPestanas {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 24px;
+  }
+  .botonPestana {
+    background: none;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 100px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    color: var(--texto-suave);
+  }
+  .botonPestana.activa { background: var(--azul); color: white; }
+
+  /* ===== En vivo ===== */
+  .puntoEnVivo {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #EF4444;
+    animation: parpadeo 1.6s ease-in-out infinite;
+    margin-right: 6px;
+  }
+  @keyframes parpadeo {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .filaMeta {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  .anilloMeta {
+    width: 84px; height: 84px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .anilloMeta::before {
+    content: '';
+    position: absolute;
+    inset: 10px;
+    background: white;
+    border-radius: 50%;
+  }
+  .anilloMeta span {
+    position: relative;
+    z-index: 1;
+    font-weight: 800;
+    font-size: 15px;
+    color: var(--azul);
+  }
+  .infoMeta { flex: 1; }
+  .infoMeta .cifraMeta { font-size: 13px; color: var(--texto-suave); }
+  .enlaceEditarMeta {
+    background: none; border: none; color: var(--azul);
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    padding: 4px 0; font-family: inherit; text-decoration: underline;
+  }
+
+  .botonExportar {
+    background: white;
+    border: 1.5px solid var(--borde);
+    padding: 8px 16px;
+    border-radius: 100px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    color: var(--texto);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* ===== Chips de filtro (pedidos) ===== */
+  .filaChips {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    margin-bottom: 16px;
+  }
+  .chipFiltro {
+    background: white;
+    border: 1.5px solid var(--borde);
+    padding: 8px 16px;
+    border-radius: 100px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    font-family: inherit;
+    color: var(--texto);
+  }
+  .chipFiltro.activo { background: var(--azul); border-color: var(--azul); color: white; }
+
+  .buscadorPedidos { margin-bottom: 16px; }
+
+  .filaDetallePedido {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--borde);
+    font-size: 13px;
+  }
+  .filaDetallePedido:last-child { border-bottom: none; }
+  .filaDetallePedido .etiqueta { color: var(--texto-suave); }
+  .filaDetallePedido .valor { font-weight: 600; text-align: right; }
+
+  .notaAyuda {
+    font-size: 12px;
+    color: var(--texto-suave);
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+
+  .filaCheckbox {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 0;
+  }
+  .filaCheckbox input { width: auto; margin: 0; }
+  .filaCheckbox label { font-size: 14px; font-weight: 600; }
+
+  /* ===== Productos dentro del panel ===== */
+  .filaProducto {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--borde);
+  }
+  .filaProducto:last-child { border-bottom: none; }
+  .infoProducto { flex: 1; min-width: 0; }
+  .nombreProducto { font-weight: 600; font-size: 13px; }
+  .precioProducto { color: var(--azul); font-weight: 700; font-size: 13px; }
+  .botonIconoChico {
+    background: none; border: none; cursor: pointer;
+    color: var(--texto-suave); font-size: 16px; padding: 4px 8px;
+  }
+  .botonIconoChico:hover { color: #DC2626; }
+
+  .cargando { text-align: center; padding: 40px; color: var(--texto-suave); }
+
+  @media (max-width: 480px) {
+    .panelLateral { width: 100%; }
+    .filaDosColumnas { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== PANTALLA DE ACCESO ===== -->
+<div id="pantallaAcceso">
+  <div class="tarjetaAcceso">
+    <div class="logoLetras">
+      <span class="letra">M</span><span class="punto">.</span><span class="letra">O</span><span class="punto">.</span><span class="letra">V</span><span class="punto">.</span><span class="letra">I</span>
+    </div>
+    <div class="subtituloAcceso">Panel de Administrador</div>
+    <label class="etiquetaCampo" style="margin-top:0">Clave de administrador</label>
+    <input type="password" id="campoClaveAcceso" placeholder="Pega tu X-Admin-Secret">
+    <div class="errorTexto" id="errorAcceso">Esa clave no es correcta</div>
+    <button class="botonPildora botonAzul anchoCompleto" onclick="intentarEntrar()">Entrar</button>
+  </div>
+</div>
+
+<!-- ===== APP PRINCIPAL ===== -->
+<div id="appPrincipal">
+  <header>
+    <div>
+      <div class="logoLetras">
+        <span class="letra">M</span><span class="punto">.</span><span class="letra">O</span><span class="punto">.</span><span class="letra">V</span><span class="punto">.</span><span class="letra">I</span>
+      </div>
+      <div class="tituloHeader">Panel de Administrador</div>
+    </div>
+    <button class="botonCerrarSesion" onclick="cerrarSesion()">Cerrar sesión</button>
+  </header>
+
+  <main>
+    <div class="navPestanas">
+      <button class="botonPestana" id="pestanaEnVivo" onclick="cambiarSeccion('envivo')">🔴 En vivo</button>
+      <button class="botonPestana activa" id="pestanaAliados" onclick="cambiarSeccion('aliados')">Aliados</button>
+      <button class="botonPestana" id="pestanaPedidos" onclick="cambiarSeccion('pedidos')">Pedidos</button>
+    </div>
+
+    <!-- ===== SECCIÓN EN VIVO ===== -->
+    <div id="seccionEnVivoMain" style="display:none">
+      <div class="filaEncabezadoSeccion">
+        <h2><span class="puntoEnVivo"></span>En vivo</h2>
+      </div>
+
+      <div class="tarjetaBlanca">
+        <div class="filaMeta">
+          <div class="anilloMeta" id="anilloMeta"><span id="porcentajeMeta">—</span></div>
+          <div class="infoMeta">
+            <div style="font-weight:700; font-size:15px">Meta mensual</div>
+            <div class="cifraMeta" id="cifraMetaTexto">Configura tu meta de pedidos del mes</div>
+            <button class="enlaceEditarMeta" onclick="editarMeta()">Editar meta</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="tarjetaBlanca">
+        <div class="filaEncabezadoSeccion" style="margin-bottom:12px">
+          <h3 style="margin:0; font-size:15px">Conductores</h3>
+          <div style="display:flex; gap:14px; font-size:11px; color:var(--texto-suave)">
+            <span>🟢 En línea</span>
+            <span>⚪ Desconectado</span>
+          </div>
+        </div>
+        <div id="mapaConductores" style="height:320px; border-radius:12px; background:var(--gris-fondo)"></div>
+      </div>
+
+      <div class="filaEncabezadoSeccion" style="margin-top:20px; margin-bottom:12px">
+        <h3 style="margin:0; font-size:15px">Pedidos activos ahora mismo</h3>
+        <span class="notaAyuda" style="margin:0">Se actualiza sola cada 30s</span>
+      </div>
+      <div id="listaEnVivo"><div class="cargando">Cargando...</div></div>
+    </div>
+
+    <!-- ===== SECCIÓN ALIADOS ===== -->
+    <div id="seccionAliadosMain">
+      <div class="filaEncabezadoSeccion">
+        <h2>Aliados</h2>
+        <button class="botonPildora botonNaranja" onclick="abrirFormularioAliado(null)">+ Nuevo Aliado</button>
+      </div>
+      <div id="listaAliados"><div class="cargando">Cargando...</div></div>
+    </div>
+
+    <!-- ===== SECCIÓN PEDIDOS ===== -->
+    <div id="seccionPedidosMain" style="display:none">
+      <div class="filaEncabezadoSeccion">
+        <h2>Pedidos</h2>
+      </div>
+
+      <div class="tarjetaBlanca" id="tarjetaGraficaAliados" style="display:none">
+        <h3 style="margin:0 0 4px; font-size:15px">Aliados con más actividad</h3>
+        <div class="notaAyuda" style="margin-bottom:16px">Pedidos totales y monto generado (solo entregados)</div>
+        <div style="position:relative; height:280px">
+          <canvas id="graficaAliados"></canvas>
+        </div>
+      </div>
+
+      <div class="tarjetaBlanca" id="tarjetaGraficaTendencia" style="display:none">
+        <h3 style="margin:0 0 4px; font-size:15px">Tendencia de pedidos</h3>
+        <div class="notaAyuda" style="margin-bottom:16px">Últimos 14 días</div>
+        <div style="position:relative; height:220px">
+          <canvas id="graficaTendencia"></canvas>
+        </div>
+      </div>
+
+      <div class="filaEncabezadoSeccion">
+        <div class="filaChips" id="chipsFiltroPedidos" style="margin:0"></div>
+        <button class="botonExportar" onclick="exportarCSV()">⬇ Exportar</button>
+      </div>
+      <input type="text" class="buscadorPedidos" id="buscadorTracking" placeholder="Buscar por número de tracking (Ej. MOVI-7F3K2A)" oninput="renderizarListaPedidos()">
+
+      <div id="listaPedidos"><div class="cargando">Cargando...</div></div>
+    </div>
+  </main>
+</div>
+
+<!-- ===== PANEL LATERAL: crear/editar aliado ===== -->
+<div class="fondoOscurecido" id="fondoOscurecido" onclick="cerrarPanel()"></div>
+<div class="panelLateral" id="panelLateral" style="display:none">
+  <div class="encabezadoPanel">
+    <h3 id="tituloPanel">Nuevo Aliado</h3>
+    <button class="botonCerrarPanel" onclick="cerrarPanel()">&times;</button>
+  </div>
+  <div class="cuerpoPanel">
+
+    <div class="tarjetaBlanca">
+      <label class="etiquetaCampo" style="margin-top:0">Nombre del negocio</label>
+      <input type="text" id="campoNombre" placeholder="Ej. Veronik Sweet">
+
+      <label class="etiquetaCampo">Categoría específica</label>
+      <input type="text" id="campoCategoria" placeholder="Ej. Repostería">
+
+      <label class="etiquetaCampo">Tipo</label>
+      <select id="campoTipoCategoria">
+        <option value="Restaurantes">Restaurantes</option>
+        <option value="Supermercados">Supermercados</option>
+        <option value="Farmacias">Farmacias</option>
+      </select>
+
+      <label class="etiquetaCampo">Ícono</label>
+      <select id="campoIcono">
+        <option value="storefront">Genérico (tienda)</option>
+        <option value="cake">Torta / repostería</option>
+        <option value="pizza">Pizza</option>
+        <option value="tools-kitchen-2">Restaurante</option>
+      </select>
+
+      <label class="etiquetaCampo">Teléfono (WhatsApp)</label>
+      <input type="tel" id="campoTelefono" placeholder="584120000000">
+      <div class="notaAyuda">Solo números, con código de país — sin espacios ni signos.</div>
+    </div>
+
+    <div class="tarjetaBlanca">
+      <label class="etiquetaCampo" style="margin-top:0">Pegar link de Google Maps</label>
+      <input type="text" id="campoLinkMaps" placeholder="https://www.google.com/maps/place/...">
+      <div class="notaAyuda" id="notaLinkMaps">Copia el link desde Google Maps y pégalo aquí — la ubicación se completa sola.</div>
+
+      <div class="filaDosColumnas" style="margin-top:14px">
+        <div>
+          <label class="etiquetaCampo" style="margin-top:0">Latitud</label>
+          <input type="number" step="any" id="campoLat" placeholder="10.4806">
+        </div>
+        <div>
+          <label class="etiquetaCampo" style="margin-top:0">Longitud</label>
+          <input type="number" step="any" id="campoLng" placeholder="-66.9036">
+        </div>
+      </div>
+    </div>
+
+    <div class="tarjetaBlanca">
+      <div class="filaCheckbox">
+        <input type="checkbox" id="campoActivo" checked>
+        <label for="campoActivo">Visible para los clientes</label>
+      </div>
+    </div>
+
+    <div class="errorTexto" id="errorFormulario"></div>
+    <button class="botonPildora botonNaranja anchoCompleto" id="botonGuardarAliado" onclick="guardarAliado()">Guardar</button>
+
+    <!-- Productos — solo aparece cuando se está editando un aliado existente -->
+    <div id="seccionProductos" style="display:none; margin-top:28px">
+      <div class="filaEncabezadoSeccion" style="margin-bottom:12px">
+        <h3 style="margin:0; font-size:15px">Productos</h3>
+        <button class="botonPildora botonContorno" style="padding:8px 16px; font-size:12px" onclick="mostrarFormularioProducto()">+ Agregar</button>
+      </div>
+      <div class="tarjetaBlanca" id="listaProductos">
+        <div class="cargando">Cargando...</div>
+      </div>
+
+      <div class="tarjetaBlanca" id="formularioProducto" style="display:none; margin-top:12px">
+        <label class="etiquetaCampo" style="margin-top:0">Nombre del producto</label>
+        <input type="text" id="campoNombreProducto" placeholder="Ej. Marquesa de Chocolate">
+        <label class="etiquetaCampo">Descripción (opcional)</label>
+        <input type="text" id="campoDescripcionProducto">
+        <div class="filaDosColumnas">
+          <div>
+            <label class="etiquetaCampo">Precio (USD)</label>
+            <input type="number" step="0.01" id="campoPrecioProducto" placeholder="2.80">
+          </div>
+          <div>
+            <label class="etiquetaCampo">Categoría (opcional)</label>
+            <input type="text" id="campoCategoriaProducto" placeholder="Ej. Tortas">
+          </div>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:14px">
+          <button class="botonPildora botonContorno" style="flex:1" onclick="ocultarFormularioProducto()">Cancelar</button>
+          <button class="botonPildora botonVerde" style="flex:1" onclick="guardarProducto()">Agregar</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===== PANEL LATERAL: detalle de pedido ===== -->
+<div class="fondoOscurecido" id="fondoOscurecidoPedido" onclick="cerrarPanelPedido()"></div>
+<div class="panelLateral" id="panelLateralPedido" style="display:none">
+  <div class="encabezadoPanel">
+    <h3>Detalle del pedido</h3>
+    <button class="botonCerrarPanel" onclick="cerrarPanelPedido()">&times;</button>
+  </div>
+  <div class="cuerpoPanel">
+    <div class="tarjetaBlanca" id="contenidoDetallePedido"></div>
+  </div>
+</div>
+
+<script>
+const API_BASE = 'https://movi-backend-3ubp.onrender.com';
+
+let claveAdmin = null;
+let aliados = [];
+let aliadoEditando = null; // null = creando uno nuevo
+let productosDelAliado = [];
+
+// ===== Acceso =====
+window.addEventListener('DOMContentLoaded', () => {
+  const guardada = localStorage.getItem('movi_admin_secret');
+  if (guardada) {
+    claveAdmin = guardada;
+    mostrarApp();
+  }
+});
+
+async function intentarEntrar() {
+  const valor = document.getElementById('campoClaveAcceso').value.trim();
+  if (!valor) return;
+  claveAdmin = valor;
+  // Se valida la clave con una llamada real — si la clave está mal, el
+  // servidor responde 403 y se avisa aquí mismo en vez de dejar entrar
+  // a una app que después falla en todo.
+  try {
+    const respuesta = await fetch(`${API_BASE}/restaurantes`, {
+      headers: { 'X-Admin-Secret': claveAdmin }
+    });
+    if (respuesta.status === 403 || respuesta.status === 401) {
+      document.getElementById('errorAcceso').style.display = 'block';
+      return;
+    }
+    localStorage.setItem('movi_admin_secret', claveAdmin);
+    mostrarApp();
+  } catch (e) {
+    document.getElementById('errorAcceso').textContent = 'No se pudo conectar — revisa tu internet';
+    document.getElementById('errorAcceso').style.display = 'block';
+  }
+}
+
+function cerrarSesion() {
+  localStorage.removeItem('movi_admin_secret');
+  claveAdmin = null;
+  document.getElementById('appPrincipal').style.display = 'none';
+  document.getElementById('pantallaAcceso').style.display = 'flex';
+}
+
+function mostrarApp() {
+  document.getElementById('pantallaAcceso').style.display = 'none';
+  document.getElementById('appPrincipal').style.display = 'block';
+  cargarAliados();
+}
+
+// ===== Llamadas al backend =====
+async function llamarAPI(metodo, ruta, cuerpo) {
+  const opciones = {
+    method: metodo,
+    headers: { 'Content-Type': 'application/json', 'X-Admin-Secret': claveAdmin },
+  };
+  if (cuerpo) opciones.body = JSON.stringify(cuerpo);
+  const respuesta = await fetch(`${API_BASE}${ruta}`, opciones);
+  const datos = await respuesta.json();
+  if (!respuesta.ok) throw new Error(datos.error || 'Error del servidor');
+  return datos;
+}
+
+// ===== Lista de aliados =====
+async function cargarAliados() {
+  const contenedor = document.getElementById('listaAliados');
+  try {
+    const datos = await llamarAPI('GET', '/restaurantes');
+    aliados = datos.restaurantes || [];
+    renderizarListaAliados();
+  } catch (e) {
+    contenedor.innerHTML = `<div class="estadoVacio">No se pudo cargar: ${e.message}</div>`;
+  }
+}
+
+function renderizarListaAliados() {
+  const contenedor = document.getElementById('listaAliados');
+  if (aliados.length === 0) {
+    contenedor.innerHTML = '<div class="estadoVacio">Todavía no hay ningún Aliado — crea el primero arriba.</div>';
+    return;
+  }
+  contenedor.innerHTML = aliados.map(a => `
+    <div class="tarjetaAliado" onclick="abrirFormularioAliado('${a.id}')">
+      <div class="iconoAliado">${iconoEmoji(a.icono)}</div>
+      <div class="infoAliado">
+        <div class="nombreAliado">${escaparHTML(a.nombre || '')}</div>
+        <div class="metaAliado">${escaparHTML(a.categoria || a.tipoCategoria || '')}</div>
+      </div>
+      <div class="insigniaEstado ${a.activo !== false ? 'insigniaActivo' : 'insigniaInactivo'}">
+        ${a.activo !== false ? 'Activo' : 'Oculto'}
+      </div>
+    </div>
+  `).join('');
+}
+
+function iconoEmoji(nombreIcono) {
+  const mapa = { cake: '🎂', pizza: '🍕', 'tools-kitchen-2': '🍽️' };
+  return mapa[nombreIcono] || '🏪';
+}
+
+function escaparHTML(texto) {
+  const div = document.createElement('div');
+  div.textContent = texto;
+  return div.innerHTML;
+}
+
+// ===== Panel lateral: crear/editar =====
+function abrirFormularioAliado(id) {
+  aliadoEditando = id ? aliados.find(a => a.id === id) : null;
+
+  document.getElementById('tituloPanel').textContent = aliadoEditando ? 'Editar Aliado' : 'Nuevo Aliado';
+  document.getElementById('errorFormulario').style.display = 'none';
+  document.getElementById('campoNombre').value = aliadoEditando?.nombre || '';
+  document.getElementById('campoCategoria').value = aliadoEditando?.categoria || '';
+  document.getElementById('campoTipoCategoria').value = aliadoEditando?.tipoCategoria || 'Restaurantes';
+  document.getElementById('campoIcono').value = aliadoEditando?.icono || 'storefront';
+  document.getElementById('campoTelefono').value = aliadoEditando?.telefono || '';
+  document.getElementById('campoLat').value = aliadoEditando?.lat ?? '';
+  document.getElementById('campoLng').value = aliadoEditando?.lng ?? '';
+  document.getElementById('campoLinkMaps').value = '';
+  document.getElementById('campoActivo').checked = aliadoEditando?.activo !== false;
+
+  document.getElementById('seccionProductos').style.display = aliadoEditando ? 'block' : 'none';
+  ocultarFormularioProducto();
+  if (aliadoEditando) cargarProductos(aliadoEditando.id);
+
+  document.getElementById('fondoOscurecido').style.display = 'block';
+  document.getElementById('panelLateral').style.display = 'block';
+}
+
+function cerrarPanel() {
+  document.getElementById('fondoOscurecido').style.display = 'none';
+  document.getElementById('panelLateral').style.display = 'none';
+  aliadoEditando = null;
+}
+
+// Extrae lat/lng de un link de Google Maps pegado — intenta primero el
+// patrón del pin exacto (!3d...!4d...), y si no aparece, usa el centro
+// del mapa (@lat,lng) como respaldo, que es menos preciso pero casi
+// siempre está presente.
+document.getElementById('campoLinkMaps').addEventListener('input', (e) => {
+  const texto = e.target.value;
+  const nota = document.getElementById('notaLinkMaps');
+  let coincidencia = texto.match(/!3d(-?\d+\.?\d*)!4d(-?\d+\.?\d*)/);
+  let precisión = 'exacta';
+  if (!coincidencia) {
+    coincidencia = texto.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+    precisión = 'aproximada (centro del mapa)';
+  }
+  if (coincidencia) {
+    document.getElementById('campoLat').value = coincidencia[1];
+    document.getElementById('campoLng').value = coincidencia[2];
+    nota.textContent = `✓ Ubicación ${precisión} detectada`;
+    nota.style.color = 'var(--verde)';
+  } else if (texto.length > 10) {
+    nota.textContent = 'No se encontró una ubicación en ese link — escribe lat/lng a mano abajo';
+    nota.style.color = '#DC2626';
+  } else {
+    nota.textContent = 'Copia el link desde Google Maps y pégalo aquí — la ubicación se completa sola.';
+    nota.style.color = 'var(--texto-suave)';
+  }
+});
+
+async function guardarAliado() {
+  const nombre = document.getElementById('campoNombre').value.trim();
+  if (!nombre) {
+    mostrarErrorFormulario('Escribe el nombre del negocio');
+    return;
+  }
+  const datos = {
+    nombre,
+    categoria: document.getElementById('campoCategoria').value.trim() || null,
+    tipoCategoria: document.getElementById('campoTipoCategoria').value,
+    icono: document.getElementById('campoIcono').value,
+    telefono: document.getElementById('campoTelefono').value.trim() || null,
+    activo: document.getElementById('campoActivo').checked,
+  };
+  const lat = document.getElementById('campoLat').value;
+  const lng = document.getElementById('campoLng').value;
+  if (lat) datos.lat = parseFloat(lat);
+  if (lng) datos.lng = parseFloat(lng);
+
+  const boton = document.getElementById('botonGuardarAliado');
+  boton.disabled = true;
+  boton.textContent = 'Guardando...';
+  try {
+    if (aliadoEditando) {
+      await llamarAPI('PUT', `/restaurantes/${aliadoEditando.id}`, datos);
+    } else {
+      await llamarAPI('POST', '/restaurantes', datos);
+    }
+    await cargarAliados();
+    cerrarPanel();
+  } catch (e) {
+    mostrarErrorFormulario(e.message);
+  } finally {
+    boton.disabled = false;
+    boton.textContent = 'Guardar';
+  }
+}
+
+function mostrarErrorFormulario(mensaje) {
+  const el = document.getElementById('errorFormulario');
+  el.textContent = mensaje;
+  el.style.display = 'block';
+}
+
+// ===== Productos =====
+async function cargarProductos(restauranteId) {
+  const contenedor = document.getElementById('listaProductos');
+  contenedor.innerHTML = '<div class="cargando">Cargando...</div>';
+  try {
+    const datos = await llamarAPI('GET', `/restaurantes/${restauranteId}`);
+    productosDelAliado = datos.productos || [];
+    renderizarProductos();
+  } catch (e) {
+    contenedor.innerHTML = `<div class="notaAyuda">No se pudo cargar: ${e.message}</div>`;
+  }
+}
+
+function renderizarProductos() {
+  const contenedor = document.getElementById('listaProductos');
+  if (productosDelAliado.length === 0) {
+    contenedor.innerHTML = '<div class="notaAyuda">Todavía no hay productos cargados.</div>';
+    return;
+  }
+  contenedor.innerHTML = productosDelAliado.map(p => `
+    <div class="filaProducto">
+      <div class="infoProducto">
+        <div class="nombreProducto">${escaparHTML(p.nombre || '')}</div>
+        ${p.categoria ? `<div class="notaAyuda" style="margin-top:0">${escaparHTML(p.categoria)}</div>` : ''}
+      </div>
+      <div class="precioProducto">$${p.precio}</div>
+      <button class="botonIconoChico" onclick="eliminarProducto('${p.id}')" title="Eliminar">✕</button>
+    </div>
+  `).join('');
+}
+
+function mostrarFormularioProducto() {
+  document.getElementById('campoNombreProducto').value = '';
+  document.getElementById('campoDescripcionProducto').value = '';
+  document.getElementById('campoPrecioProducto').value = '';
+  document.getElementById('campoCategoriaProducto').value = '';
+  document.getElementById('formularioProducto').style.display = 'block';
+}
+
+function ocultarFormularioProducto() {
+  document.getElementById('formularioProducto').style.display = 'none';
+}
+
+async function guardarProducto() {
+  const nombre = document.getElementById('campoNombreProducto').value.trim();
+  const precio = document.getElementById('campoPrecioProducto').value;
+  if (!nombre || !precio) {
+    alert('Escribe al menos el nombre y el precio');
+    return;
+  }
+  try {
+    await llamarAPI('POST', `/restaurantes/${aliadoEditando.id}/productos`, {
+      nombre,
+      descripcion: document.getElementById('campoDescripcionProducto').value.trim() || null,
+      precio: parseFloat(precio),
+      categoria: document.getElementById('campoCategoriaProducto').value.trim() || null,
+    });
+    ocultarFormularioProducto();
+    await cargarProductos(aliadoEditando.id);
+  } catch (e) {
+    alert('No se pudo guardar: ' + e.message);
+  }
+}
+
+async function eliminarProducto(productoId) {
+  if (!confirm('¿Quitar este producto del menú?')) return;
+  try {
+    await llamarAPI('DELETE', `/restaurantes/${aliadoEditando.id}/productos/${productoId}`);
+    await cargarProductos(aliadoEditando.id);
+  } catch (e) {
+    alert('No se pudo eliminar: ' + e.message);
+  }
+}
+
+// ===== Navegación entre pestañas =====
+let pedidos = [];
+let pedidosYaCargados = false;
+let filtroPedidoActual = 'Todos';
+const FILTROS_PEDIDOS = ['Todos', 'En proceso', 'Entregados', 'Cancelados'];
+
+let temporizadorEnVivo = null;
+
+function cambiarSeccion(seccion) {
+  document.getElementById('pestanaEnVivo').classList.toggle('activa', seccion === 'envivo');
+  document.getElementById('pestanaAliados').classList.toggle('activa', seccion === 'aliados');
+  document.getElementById('pestanaPedidos').classList.toggle('activa', seccion === 'pedidos');
+  document.getElementById('seccionEnVivoMain').style.display = seccion === 'envivo' ? 'block' : 'none';
+  document.getElementById('seccionAliadosMain').style.display = seccion === 'aliados' ? 'block' : 'none';
+  document.getElementById('seccionPedidosMain').style.display = seccion === 'pedidos' ? 'block' : 'none';
+
+  if (seccion === 'pedidos' && !pedidosYaCargados) {
+    cargarPedidos();
+  }
+
+  clearInterval(temporizadorEnVivo);
+  if (seccion === 'envivo') {
+    cargarEnVivo();
+    temporizadorEnVivo = setInterval(cargarEnVivo, 30000);
+  }
+}
+
+// ===== Cargar pedidos =====
+async function cargarPedidos() {
+  const contenedor = document.getElementById('listaPedidos');
+  try {
+    pedidos = await llamarAPI('GET', '/pedidos');
+    pedidosYaCargados = true;
+    renderizarChipsFiltro();
+    renderizarGraficaAliados();
+    renderizarGraficaTendencia();
+    renderizarMeta();
+    renderizarListaPedidos();
+  } catch (e) {
+    contenedor.innerHTML = `<div class="estadoVacio">No se pudo cargar: ${e.message}</div>`;
+  }
+}
+
+// ===== Gráfica comparativa de Aliados =====
+function calcularEstadisticasAliados() {
+  const porAliado = {};
+  for (const p of pedidos) {
+    if (!p.restauranteNombre) continue; // solo cuenta lo que viene de un Aliado
+    if (!porAliado[p.restauranteNombre]) {
+      porAliado[p.restauranteNombre] = { nombre: p.restauranteNombre, cantidad: 0, ingreso: 0 };
+    }
+    porAliado[p.restauranteNombre].cantidad += 1;
+    if (p.estado === 'completado' && p.tarifa && p.tarifa.tarifa) {
+      porAliado[p.restauranteNombre].ingreso += Number(p.tarifa.tarifa);
+    }
+  }
+  return Object.values(porAliado).sort((a, b) => b.cantidad - a.cantidad);
+}
+
+let instanciaGraficaAliados = null;
+
+function renderizarGraficaAliados() {
+  const stats = calcularEstadisticasAliados();
+  const tarjeta = document.getElementById('tarjetaGraficaAliados');
+  if (stats.length === 0) {
+    tarjeta.style.display = 'none';
+    return;
+  }
+  tarjeta.style.display = 'block';
+
+  if (instanciaGraficaAliados) instanciaGraficaAliados.destroy();
+
+  instanciaGraficaAliados = new Chart(document.getElementById('graficaAliados'), {
+    type: 'bar',
+    data: {
+      labels: stats.map(s => s.nombre),
+      datasets: [{
+        label: 'Pedidos',
+        data: stats.map(s => s.cantidad),
+        backgroundColor: '#1E58FF',
+        borderRadius: 8,
+        maxBarThickness: 56,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (contexto) => {
+              const s = stats[contexto.dataIndex];
+              return [`${s.cantidad} pedido${s.cantidad === 1 ? '' : 's'}`, `$${s.ingreso.toFixed(2)} en ingresos`];
+            },
+          },
+        },
+      },
+      scales: {
+        y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: '#E5E7EB' } },
+        x: { grid: { display: false } },
+      },
+    },
+  });
+}
+
+// ===== Filtro y lista de pedidos =====
+function renderizarChipsFiltro() {
+  const contenedor = document.getElementById('chipsFiltroPedidos');
+  contenedor.innerHTML = FILTROS_PEDIDOS.map(f => `
+    <button class="chipFiltro ${filtroPedidoActual === f ? 'activo' : ''}" onclick="cambiarFiltroPedido('${f}')">${f}</button>
+  `).join('');
+}
+
+function cambiarFiltroPedido(filtro) {
+  filtroPedidoActual = filtro;
+  renderizarChipsFiltro();
+  renderizarListaPedidos();
+}
+
+function estadosDelFiltro(filtro) {
+  if (filtro === 'En proceso') return ['procesando', 'buscando_conductor', 'confirmado', 'en_servicio'];
+  if (filtro === 'Entregados') return ['completado'];
+  if (filtro === 'Cancelados') return ['cancelado', 'sin_conductor'];
+  return null; // Todos
+}
+
+function tituloPedido(p) {
+  if (p.restauranteNombre) return `Pedido de ${p.restauranteNombre}`;
+  if (p.tipoServicio === 'carrera') return 'Carrera (Taxi)';
+  const mapa = { paquete: 'Enviar paquete', compra: 'Comprar algo', diligencia: 'Diligencia' };
+  return mapa[p.subtipo] || 'Delivery';
+}
+
+function etiquetaEstadoPedido(estado) {
+  const mapa = {
+    completado: 'Completado', sin_conductor: 'Sin conductor', cancelado: 'Cancelado',
+    procesando: 'Procesando', confirmado: 'En camino', en_servicio: 'En servicio',
+    buscando_conductor: 'Buscando',
+  };
+  return mapa[estado] || estado;
+}
+
+function colorEstadoPedido(estado) {
+  if (estado === 'completado') return { bg: '#DCFCE7', texto: '#16A34A' };
+  if (['sin_conductor', 'cancelado'].includes(estado)) return { bg: '#F3F4F6', texto: '#6B7280' };
+  return { bg: '#FFF1E0', texto: '#B45309' }; // en curso
+}
+
+function renderizarListaPedidos() {
+  const contenedor = document.getElementById('listaPedidos');
+  const estados = estadosDelFiltro(filtroPedidoActual);
+  const busqueda = document.getElementById('buscadorTracking').value.trim().toUpperCase();
+
+  let filtrados = estados ? pedidos.filter(p => estados.includes(p.estado)) : pedidos;
+  if (busqueda) {
+    filtrados = filtrados.filter(p => (p.numeroTracking || '').toUpperCase().includes(busqueda));
+  }
+
+  if (filtrados.length === 0) {
+    contenedor.innerHTML = '<div class="estadoVacio">No hay pedidos con ese filtro.</div>';
+    return;
+  }
+
+  contenedor.innerHTML = filtrados.map(p => {
+    const color = colorEstadoPedido(p.estado);
+    return `
+      <div class="tarjetaAliado" onclick='abrirDetallePedido(${JSON.stringify(p.id)})'>
+        <div class="iconoAliado">${p.tipoServicio === 'carrera' ? '🚗' : '📦'}</div>
+        <div class="infoAliado">
+          <div class="nombreAliado">${escaparHTML(tituloPedido(p))}</div>
+          <div class="metaAliado">${(p.creadoEn || '').substring(0, 16).replace('T', ' ')}${p.numeroTracking ? ' · ' + p.numeroTracking : ''}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-weight:700; font-size:14px; margin-bottom:4px">$${p.tarifa && p.tarifa.tarifa ? p.tarifa.tarifa : '—'}</div>
+          <div class="insigniaEstado" style="background:${color.bg}; color:${color.texto}">${etiquetaEstadoPedido(p.estado)}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ===== Detalle de pedido =====
+function abrirDetallePedido(id) {
+  const p = pedidos.find(x => String(x.id) === String(id));
+  if (!p) return;
+  const filas = [
+    ['Número de pedido', p.id],
+    ['Estado', etiquetaEstadoPedido(p.estado)],
+    ['Tipo de servicio', p.tipoServicio === 'carrera' ? 'Carrera (Taxi)' : 'Delivery'],
+    ['Negocio', p.restauranteNombre || '—'],
+    ['Número de tracking', p.numeroTracking || '—'],
+    ['Nombre del cliente', p.nombreCliente || '—'],
+    ['Tarifa', p.tarifa && p.tarifa.tarifa ? `$${p.tarifa.tarifa}` : '—'],
+    ['Distancia', p.tarifa && p.tarifa.distanciaKm ? `${p.tarifa.distanciaKm} km` : '—'],
+    ['Origen', p.origen ? `${p.origen.lat}, ${p.origen.lng}` : '—'],
+    ['Destino', p.destino ? `${p.destino.lat}, ${p.destino.lng}` : '—'],
+    ['Creado', (p.creadoEn || '').substring(0, 16).replace('T', ' ')],
+  ];
+  document.getElementById('contenidoDetallePedido').innerHTML = filas.map(([etiqueta, valor]) => `
+    <div class="filaDetallePedido">
+      <span class="etiqueta">${etiqueta}</span>
+      <span class="valor">${escaparHTML(String(valor))}</span>
+    </div>
+  `).join('');
+  document.getElementById('fondoOscurecidoPedido').style.display = 'block';
+  document.getElementById('panelLateralPedido').style.display = 'block';
+}
+
+function cerrarPanelPedido() {
+  document.getElementById('fondoOscurecidoPedido').style.display = 'none';
+  document.getElementById('panelLateralPedido').style.display = 'none';
+}
+
+// ===== En vivo =====
+async function cargarEnVivo() {
+  const contenedor = document.getElementById('listaEnVivo');
+  cargarConductoresMapa();
+  try {
+    pedidos = await llamarAPI('GET', '/pedidos');
+    pedidosYaCargados = true;
+    renderizarMeta();
+
+    const activos = pedidos.filter(p =>
+      ['procesando', 'buscando_conductor', 'confirmado', 'en_servicio'].includes(p.estado)
+    );
+    if (activos.length === 0) {
+      contenedor.innerHTML = '<div class="estadoVacio">No hay pedidos activos ahora mismo.</div>';
+      return;
+    }
+    contenedor.innerHTML = activos.map(p => {
+      const color = colorEstadoPedido(p.estado);
+      return `
+        <div class="tarjetaAliado" onclick='abrirDetallePedido(${JSON.stringify(p.id)})'>
+          <div class="iconoAliado">${p.tipoServicio === 'carrera' ? '🚗' : '📦'}</div>
+          <div class="infoAliado">
+            <div class="nombreAliado">${escaparHTML(tituloPedido(p))}</div>
+            <div class="metaAliado">${(p.creadoEn || '').substring(0, 16).replace('T', ' ')}</div>
+          </div>
+          <div class="insigniaEstado" style="background:${color.bg}; color:${color.texto}">${etiquetaEstadoPedido(p.estado)}</div>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    contenedor.innerHTML = `<div class="estadoVacio">No se pudo cargar: ${e.message}</div>`;
+  }
+}
+
+// ===== Meta mensual =====
+function renderizarMeta() {
+  const meta = parseInt(localStorage.getItem('movi_meta_mensual') || '0');
+  const anillo = document.getElementById('anilloMeta');
+  const porcentajeEl = document.getElementById('porcentajeMeta');
+  const textoEl = document.getElementById('cifraMetaTexto');
+
+  if (!meta) {
+    anillo.style.background = 'var(--gris-fondo)';
+    porcentajeEl.textContent = '—';
+    textoEl.textContent = 'Configura tu meta de pedidos del mes';
+    return;
+  }
+
+  const ahora = new Date();
+  const pedidosDelMes = pedidos.filter(p => {
+    const fecha = new Date(p.creadoEn);
+    return fecha.getMonth() === ahora.getMonth() && fecha.getFullYear() === ahora.getFullYear();
+  }).length;
+
+  const porcentaje = Math.min(100, Math.round((pedidosDelMes / meta) * 100));
+  anillo.style.background = `conic-gradient(var(--azul) ${porcentaje * 3.6}deg, var(--gris-fondo) 0deg)`;
+  porcentajeEl.textContent = `${porcentaje}%`;
+  textoEl.textContent = `${pedidosDelMes} de ${meta} pedidos este mes`;
+}
+
+function editarMeta() {
+  const actual = localStorage.getItem('movi_meta_mensual') || '';
+  const nueva = prompt('¿Cuántos pedidos quieres como meta este mes?', actual);
+  if (nueva === null) return;
+  const numero = parseInt(nueva);
+  if (isNaN(numero) || numero <= 0) {
+    alert('Escribe un número válido');
+    return;
+  }
+  localStorage.setItem('movi_meta_mensual', numero);
+  renderizarMeta();
+}
+
+// ===== Gráfica de tendencia =====
+let instanciaGraficaTendencia = null;
+
+function renderizarGraficaTendencia() {
+  const tarjeta = document.getElementById('tarjetaGraficaTendencia');
+  if (pedidos.length === 0) {
+    tarjeta.style.display = 'none';
+    return;
+  }
+  tarjeta.style.display = 'block';
+
+  const dias = [];
+  const conteos = [];
+  for (let i = 13; i >= 0; i--) {
+    const fecha = new Date();
+    fecha.setDate(fecha.getDate() - i);
+    const clave = fecha.toISOString().substring(0, 10);
+    dias.push(fecha.toLocaleDateString('es-VE', { day: 'numeric', month: 'short' }));
+    conteos.push(pedidos.filter(p => (p.creadoEn || '').startsWith(clave)).length);
+  }
+
+  if (instanciaGraficaTendencia) instanciaGraficaTendencia.destroy();
+  instanciaGraficaTendencia = new Chart(document.getElementById('graficaTendencia'), {
+    type: 'line',
+    data: {
+      labels: dias,
+      datasets: [{
+        label: 'Pedidos',
+        data: conteos,
+        borderColor: '#1E58FF',
+        backgroundColor: 'rgba(30,88,255,0.08)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 3,
+        pointBackgroundColor: '#1E58FF',
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: '#E5E7EB' } },
+        x: { grid: { display: false } },
+      },
+    },
+  });
+}
+
+// ===== Exportar CSV =====
+function exportarCSV() {
+  const estados = estadosDelFiltro(filtroPedidoActual);
+  const busqueda = document.getElementById('buscadorTracking').value.trim().toUpperCase();
+  let filtrados = estados ? pedidos.filter(p => estados.includes(p.estado)) : pedidos;
+  if (busqueda) {
+    filtrados = filtrados.filter(p => (p.numeroTracking || '').toUpperCase().includes(busqueda));
+  }
+
+  const encabezados = ['ID', 'Fecha', 'Tipo', 'Negocio', 'Tracking', 'Estado', 'Tarifa', 'Cliente'];
+  const filas = filtrados.map(p => [
+    p.id,
+    (p.creadoEn || '').substring(0, 16).replace('T', ' '),
+    tituloPedido(p),
+    p.restauranteNombre || '',
+    p.numeroTracking || '',
+    etiquetaEstadoPedido(p.estado),
+    p.tarifa && p.tarifa.tarifa ? p.tarifa.tarifa : '',
+    p.nombreCliente || '',
+  ]);
+
+  const csv = [encabezados, ...filas]
+    .map(fila => fila.map(campo => `"${String(campo).replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+
+  // El BOM (\ufeff) al inicio ayuda a que Excel detecte bien los acentos
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const enlace = document.createElement('a');
+  enlace.href = url;
+  enlace.download = `pedidos_movi_${new Date().toISOString().substring(0, 10)}.csv`;
+  enlace.click();
+  URL.revokeObjectURL(url);
+}
+
+// ===== Mapa de conductores =====
+let mapaConductores = null;
+let marcadoresConductores = [];
+
+window.crearMapaConductores = function () {
+  const contenedor = document.getElementById('mapaConductores');
+  if (!contenedor || mapaConductores) return;
+  // offsetParent es null cuando el elemento (o algún ancestro) tiene
+  // display:none — si la pestaña "En vivo" no se ha abierto todavía,
+  // se espera a que cargarConductoresMapa() lo reintente cuando sí
+  // sea visible, en vez de crear el mapa "a ciegas" y que salga roto.
+  if (contenedor.offsetParent === null) return;
+  mapaConductores = new google.maps.Map(contenedor, {
+    center: { lat: 10.4806, lng: -66.9036 }, // Caracas, como el resto de la app
+    zoom: 12,
+  });
+};
+
+async function cargarConductoresMapa() {
+  // Si Google Maps todavía no terminó de cargar, no hay nada que
+  // actualizar todavía — cargarEnVivo() lo vuelve a intentar en el
+  // próximo ciclo de 30s.
+  if (window.mapaGoogleListo && !mapaConductores) window.crearMapaConductores();
+  if (!mapaConductores) return;
+
+  try {
+    const conductores = await llamarAPI('GET', '/conductores');
+    marcadoresConductores.forEach(m => m.setMap(null));
+    marcadoresConductores = [];
+    conductores
+      .filter(c => c.lat != null && c.lng != null)
+      .forEach(c => {
+        const marcador = new google.maps.Marker({
+          position: { lat: c.lat, lng: c.lng },
+          map: mapaConductores,
+          title: `${c.nombre || 'Conductor'}${c.enLinea ? ' (en línea)' : ' (desconectado)'}`,
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 8,
+            fillColor: c.enLinea ? '#22C55E' : '#9CA3AF',
+            fillOpacity: 1,
+            strokeWeight: 2,
+            strokeColor: 'white',
+          },
+        });
+        marcadoresConductores.push(marcador);
+      });
+  } catch (e) {
+    console.error('No se pudieron cargar los conductores en el mapa:', e);
+  }
+}
+
+// Por si Google Maps ya había terminado de cargar antes de llegar aquí
+if (window.mapaGoogleListo) window.crearMapaConductores();
+</script>
+
+</body>
+</html>
