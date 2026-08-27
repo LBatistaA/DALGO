@@ -63,7 +63,7 @@ async function actualizar(id, cambios) {
 
 // ---- Productos del menú — subcolección de cada restaurante ----
 
-async function agregarProducto(restauranteId, { nombre, descripcion, precio, categoria }) {
+async function agregarProducto(restauranteId, { nombre, descripcion, precio, categoria, imagenUrl }) {
   const ref = db.collection(COLECCION).doc(restauranteId).collection("productos").doc();
   const producto = {
     id: ref.id,
@@ -71,6 +71,7 @@ async function agregarProducto(restauranteId, { nombre, descripcion, precio, cat
     descripcion: descripcion || null,
     precio: Number(precio),
     categoria: categoria || null,
+    imagenUrl: imagenUrl || null,
     disponible: true,
   };
   await ref.set(producto);
