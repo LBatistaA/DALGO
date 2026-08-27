@@ -105,6 +105,19 @@ function infoPublicaConductor(c) {
   };
 }
 
+// Agrega el promedio ya calculado, para no repetir esta cuenta en
+// cada pantalla que muestra un Aliado (misma idea que con conductores).
+function conCalificacionPromedio(r) {
+  if (!r) return null;
+  return {
+    ...r,
+    calificacionPromedio:
+      r.calificacionCantidad > 0
+        ? Number((r.calificacionTotal / r.calificacionCantidad).toFixed(1))
+        : null,
+  };
+}
+
 function infoPublicaUsuario(u) {
   if (!u) return null;
   return {
@@ -788,11 +801,43 @@ const server = http.createServer(async (req, res) => {
       if (!pedido.conductorId) {
         return enviarJSON(res, 400, { error: "Este pedido no tiene conductor asignado" });
       }
+      if (pedido.calificado) {
+        return enviarJSON(res, 400, { error: "Ya calificaste este viaje" });
+      }
       const conductor = await conductoresStore.agregarCalificacion(
         pedido.conductorId,
         Number(body.estrellas)
       );
+      await pedidosStore.marcarCalificado(partes[1], Number(body.estrellas));
       return enviarJSON(res, 200, { conductor });
+    }
+
+    // POST /pedido/:id/calificar-aliado  { estrellas: 1-5 }
+    // Separado de calificar al conductor — el cliente puede calificar
+    // los dos servicios de forma independiente.
+    if (
+      req.method === "POST" &&
+      partes[0] === "pedido" &&
+      partes[2] === "calificar-aliado"
+    ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      const body = await leerCuerpo(req);
+      const pedido = await pedidosStore.obtenerPorId(partes[1]);
+      if (!pedido) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
+      if (pedido.usuarioId !== uid) return prohibido(res);
+      if (!pedido.restauranteId) {
+        return enviarJSON(res, 400, { error: "Este pedido no viene de un Aliado" });
+      }
+      if (pedido.calificadoAliado) {
+        return enviarJSON(res, 400, { error: "Ya calificaste este Aliado en este pedido" });
+      }
+      const restaurante = await restaurantesStore.agregarCalificacion(
+        pedido.restauranteId,
+        Number(body.estrellas)
+      );
+      await pedidosStore.marcarCalificadoAliado(partes[1], Number(body.estrellas));
+      return enviarJSON(res, 200, { restaurante });
     }
 
     // POST /conductor/:id/foto-perfil — solo el conductor mismo
@@ -1002,7 +1047,9 @@ const server = http.createServer(async (req, res) => {
         const uid = await verificarToken(req);
         if (!uid) return noAutorizado(res);
       }
-      const restaurantes = await restaurantesStore.obtenerTodos();
+      const restaurantes = (await restaurantesStore.obtenerTodos()).map(
+        conCalificacionPromedio
+      );
       return enviarJSON(res, 200, { restaurantes });
     }
 
@@ -1019,7 +1066,7 @@ const server = http.createServer(async (req, res) => {
       const restaurante = await restaurantesStore.obtener(partes[1]);
       if (!restaurante) return enviarJSON(res, 404, { error: "Restaurante no encontrado" });
       const productos = await restaurantesStore.obtenerProductos(partes[1]);
-      return enviarJSON(res, 200, { restaurante, productos });
+      return enviarJSON(res, 200, { restaurante: conCalificacionPromedio(restaurante), productos });
     }
 
     // POST /restaurantes — SOLO administrador (mientras Dalgo no tenga

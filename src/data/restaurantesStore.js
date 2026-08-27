@@ -35,6 +35,8 @@ async function crear({
     telefono: telefono || null, // para el botón "Pedir por WhatsApp"
     lat: lat != null ? Number(lat) : null, // para calcular el delivery
     lng: lng != null ? Number(lng) : null,
+    calificacionTotal: 0,
+    calificacionCantidad: 0,
     activo: true,
     creadoEn: new Date().toISOString(),
   };
@@ -59,6 +61,23 @@ async function actualizar(id, cambios) {
   if (!snap.exists) return null;
   await ref.update(cambios);
   return { ...snap.data(), ...cambios };
+}
+
+// Igual que la calificación de conductores — con transacción, para
+// que dos calificaciones que lleguen al mismo tiempo no se pisen.
+async function agregarCalificacion(id, estrellas) {
+  const ref = db.collection(COLECCION).doc(id);
+  return db.runTransaction(async (t) => {
+    const snap = await t.get(ref);
+    if (!snap.exists) return null;
+    const actual = snap.data();
+    const actualizado = {
+      calificacionTotal: (actual.calificacionTotal || 0) + estrellas,
+      calificacionCantidad: (actual.calificacionCantidad || 0) + 1,
+    };
+    t.update(ref, actualizado);
+    return { ...actual, ...actualizado };
+  });
 }
 
 // ---- Productos del menú — subcolección de cada restaurante ----
@@ -132,4 +151,5 @@ module.exports = {
   actualizarProducto,
   eliminarProducto,
   eliminar,
+  agregarCalificacion,
 };

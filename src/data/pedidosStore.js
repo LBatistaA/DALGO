@@ -305,6 +305,31 @@ async function actualizarEstado(id, nuevoEstado) {
   return { ...snap.data(), estado: nuevoEstado };
 }
 
+// Se marca al calificar al conductor — evita que el mismo viaje se
+// pueda calificar dos veces (una desde el mapa en vivo, otra desde
+// el detalle del pedido) y le permite al cliente ver después con
+// cuántas estrellas lo calificó.
+async function marcarCalificado(id, estrellas) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  const cambios = { calificado: true, calificacionEstrellas: estrellas };
+  await ref.update(cambios);
+  return { ...snap.data(), ...cambios };
+}
+
+// Separado de marcarCalificado (esa es para el conductor) — un mismo
+// pedido de un Aliado necesita las dos calificaciones de forma
+// independiente, ya que son dos servicios distintos.
+async function marcarCalificadoAliado(id, estrellas) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  const cambios = { calificadoAliado: true, calificacionAliadoEstrellas: estrellas };
+  await ref.update(cambios);
+  return { ...snap.data(), ...cambios };
+}
+
 async function todos() {
   const snap = await db.collection(COLECCION).get();
   return snap.docs.map((d) => d.data());
@@ -352,6 +377,8 @@ module.exports = {
   descartarParaConductor,
   intentarConfirmar,
   actualizarEstado,
+  marcarCalificado,
+  marcarCalificadoAliado,
   agregarMensaje,
   obtenerMensajes,
   todos,
