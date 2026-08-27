@@ -308,7 +308,8 @@ const server = http.createServer(async (req, res) => {
       const uid = await verificarToken(req);
       if (!uid) return noAutorizado(res);
       const body = await leerCuerpo(req);
-      const { restauranteId, origen, destino, numeroTracking } = body;
+      const { restauranteId, origen, destino, numeroTracking, items, subtotal, costoDelivery } =
+        body;
       if (!restauranteId || !origen || !destino || !numeroTracking) {
         return enviarJSON(res, 400, {
           error: "Faltan datos: restauranteId, origen, destino y numeroTracking son requeridos",
@@ -322,6 +323,9 @@ const server = http.createServer(async (req, res) => {
         origen,
         destino,
         numeroTracking: numeroTracking.toUpperCase().trim(),
+        items,
+        subtotal,
+        costoDelivery,
       });
       return enviarJSON(res, 200, { pedido });
     }
@@ -935,7 +939,10 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { usuario: infoPublicaUsuario(usuario) });
     }
 
-    // GET /usuario/:id/historial — privado, solo el usuario mismo
+    // GET /usuario/:id/historial — privado, solo el usuario mismo.
+    // Si es un Aliado (tiene restauranteId vinculado), se le suman los
+    // pedidos que sus CLIENTES hicieron en su menú — si no, se
+    // quedaría sin ver las ventas de su propio negocio.
     if (
       req.method === "GET" &&
       partes[0] === "usuario" &&
@@ -944,7 +951,20 @@ const server = http.createServer(async (req, res) => {
       const uid = await verificarToken(req);
       if (!uid) return noAutorizado(res);
       if (uid !== partes[1]) return prohibido(res);
-      const historial = await pedidosStore.obtenerPorUsuario(partes[1]);
+      let historial = await pedidosStore.obtenerPorUsuario(partes[1]);
+
+      const usuario = await usuariosStore.obtener(partes[1]);
+      if (usuario?.restauranteId) {
+        const pedidosDelNegocio = await pedidosStore.obtenerPorRestaurante(
+          usuario.restauranteId
+        );
+        const idsYaIncluidos = new Set(historial.map((p) => p.id));
+        for (const p of pedidosDelNegocio) {
+          if (!idsYaIncluidos.has(p.id)) historial.push(p);
+        }
+        historial.sort((a, b) => (a.creadoEn < b.creadoEn ? 1 : -1));
+      }
+
       return enviarJSON(res, 200, { historial });
     }
 

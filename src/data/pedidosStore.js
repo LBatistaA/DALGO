@@ -39,6 +39,9 @@ async function crearProcesando({
   origen,
   destino,
   numeroTracking,
+  items,
+  subtotal,
+  costoDelivery,
 }) {
   const id = String(await _siguienteId());
   const pedido = {
@@ -60,6 +63,12 @@ async function crearProcesando({
     restauranteId,
     restauranteNombre: restauranteNombre || null,
     numeroTracking,
+    // Lo que compró el cliente en el menú del Aliado — para que el
+    // Aliado pueda ver el desglose desde su propia app, sin depender
+    // de buscarlo en el historial de WhatsApp.
+    items: items || [],
+    subtotal: subtotal ?? null,
+    costoDelivery: costoDelivery ?? null,
     // procesando | buscando_conductor | confirmado | en_servicio | completado
     estado: "procesando",
     creadoEn: new Date().toISOString(),
@@ -236,6 +245,21 @@ async function obtenerPorUsuario(usuarioId) {
     .sort((a, b) => (a.creadoEn < b.creadoEn ? 1 : -1));
 }
 
+// Pedidos que los CLIENTES hicieron en el menú de este Aliado — para
+// que el propio Aliado (dueño del negocio) también los vea como
+// suyos, aparte de los pedidos que él mismo pidió (ej. "Llevar
+// pedido"), que ya cubre obtenerPorUsuario.
+async function obtenerPorRestaurante(restauranteId) {
+  const snap = await db
+    .collection(COLECCION)
+    .where("restauranteId", "==", restauranteId)
+    .get();
+
+  return snap.docs
+    .map((d) => d.data())
+    .sort((a, b) => (a.creadoEn < b.creadoEn ? 1 : -1));
+}
+
 // Un conductor descarta el pedido — deja de vérselo a él, pero sigue
 // disponible para los demás candidatos.
 async function descartarParaConductor(id, conductorId) {
@@ -324,6 +348,7 @@ module.exports = {
   obtenerPorConductor,
   obtenerViajeActivoPorConductor,
   obtenerPorUsuario,
+  obtenerPorRestaurante,
   descartarParaConductor,
   intentarConfirmar,
   actualizarEstado,
