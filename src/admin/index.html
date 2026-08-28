@@ -609,11 +609,11 @@
       <div class="filaDosColumnas" style="margin-top:14px">
         <div>
           <label class="etiquetaCampo" style="margin-top:0">Latitud</label>
-          <input type="number" step="any" id="campoLat" placeholder="10.4806">
+          <input type="number" step="any" id="campoLat" placeholder="10.2466">
         </div>
         <div>
           <label class="etiquetaCampo" style="margin-top:0">Longitud</label>
-          <input type="number" step="any" id="campoLng" placeholder="-66.9036">
+          <input type="number" step="any" id="campoLng" placeholder="-67.5947">
         </div>
       </div>
     </div>
@@ -1431,7 +1431,7 @@ window.crearMapaConductores = function () {
   // sea visible, en vez de crear el mapa "a ciegas" y que salga roto.
   if (contenedor.offsetParent === null) return;
   mapaConductores = new google.maps.Map(contenedor, {
-    center: { lat: 10.4806, lng: -66.9036 }, // Caracas, como el resto de la app
+    center: { lat: 10.2466, lng: -67.5947 }, // Maracay, como el resto de la app
     zoom: 12,
   });
 };

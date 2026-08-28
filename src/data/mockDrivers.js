@@ -4,10 +4,10 @@
 // o actualizaciones periódicas de posición).
 
 let conductores = [
-  { id: "cond-1", nombre: "Carlos", lat: 10.4806, lng: -66.9036, disponible: true },
-  { id: "cond-2", nombre: "María", lat: 10.4900, lng: -66.8790, disponible: true },
-  { id: "cond-3", nombre: "Luis", lat: 10.4650, lng: -66.9200, disponible: true },
-  { id: "cond-4", nombre: "Ana", lat: 10.5000, lng: -66.9100, disponible: false },
+  { id: "cond-1", nombre: "Carlos", lat: 10.2466, lng: -67.5947, disponible: true },
+  { id: "cond-2", nombre: "María", lat: 10.2560, lng: -67.5700, disponible: true },
+  { id: "cond-3", nombre: "Luis", lat: 10.2310, lng: -67.6110, disponible: true },
+  { id: "cond-4", nombre: "Ana", lat: 10.2660, lng: -67.6010, disponible: false },
 ];
 
 function listarDisponibles() {
