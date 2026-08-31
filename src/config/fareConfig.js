@@ -9,10 +9,15 @@ module.exports = {
     costoPorKm: 0.35, // USD por kilómetro recorrido
     costoPorMinuto: 0.05, // USD por minuto estimado de trayecto
   },
+  // Carrera (taxi) — calibrada el 28/ago/2026 con precios reales de
+  // Yummy en Maracay (4 viajes: moto y carro, 1.4km a 8.5km). Cada
+  // vehículo tiene su propia base y costo por km — no es un
+  // multiplicador simple, porque los datos reales muestran que la
+  // moto y el carro no se relacionan por un porcentaje fijo (la moto
+  // tiene base más alta pero cuesta menos por km recorrido).
   carrera: {
-    tarifaBase: 1.5,
-    costoPorKm: 0.45,
-    costoPorMinuto: 0.05,
+    moto: { tarifaBase: 1.35, costoPorKm: 0.24 },
+    carro: { tarifaBase: 0.40, costoPorKm: 0.68 },
   },
 
   // Velocidad promedio asumida para estimar tiempo de trayecto
@@ -21,12 +26,6 @@ module.exports = {
 
   // Tarifa mínima, por si el cálculo da un monto muy bajo en trayectos cortos
   tarifaMinima: 1.5,
-
-  // La moto cuesta menos que el carro para el mismo trayecto (ajustable)
-  multiplicadorPorVehiculo: {
-    carro: 1,
-    moto: 0.7,
-  },
 
   // MoviCoins que gana el usuario cada vez que completa un viaje/entrega
   moviCoinsPorViaje: 10,

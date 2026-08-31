@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { calcularTarifa } = require("./services/fareService");
 const { buscarCandidatos } = require("./services/dispatchService");
+const { enviarNotificacion } = require("./services/notificationService");
 const { distanciaKm } = require("./utils/geo");
 const conductoresStore = require("./data/conductoresStore");
 const pedidosStore = require("./data/pedidosStore");
@@ -239,6 +240,14 @@ const server = http.createServer(async (req, res) => {
           candidatos: candidatosEncontrados.map((c) => c.id),
           creadoPorId: uid,
         });
+        for (const candidato of candidatosEncontrados) {
+          enviarNotificacion(
+            candidato.fcmToken,
+            "Nuevo pedido disponible",
+            `Delivery de ${pedidoExistente.restauranteNombre || "un Aliado"} — $${tarifaCalculada.tarifa}`,
+            { pedidoId: actualizado.id }
+          );
+        }
         return enviarJSON(res, 200, {
           pedido: actualizado,
           tarifa: tarifaCalculada,
@@ -303,6 +312,15 @@ const server = http.createServer(async (req, res) => {
         nombreCliente: nombreCliente || null,
         telefonoCliente: telefonoCliente || null,
       });
+
+      for (const candidato of candidatos) {
+        enviarNotificacion(
+          candidato.fcmToken,
+          "Nuevo pedido disponible",
+          `${tipoServicio === "carrera" ? "Carrera" : "Delivery"} — $${tarifa.tarifa}`,
+          { pedidoId: pedido.id }
+        );
+      }
 
       return enviarJSON(res, 200, {
         pedido,
@@ -490,6 +508,19 @@ const server = http.createServer(async (req, res) => {
         body.motivo
       );
       if (!conductor) return enviarJSON(res, 404, { error: "Conductor no registrado" });
+      if (estado === "aprobado") {
+        enviarNotificacion(
+          conductor.fcmToken,
+          "¡Ya puedes empezar a manejar!",
+          "Tus documentos fueron aprobados. Ponte en línea cuando quieras."
+        );
+      } else {
+        enviarNotificacion(
+          conductor.fcmToken,
+          "Revisa tus documentos",
+          body.motivo || "Tus documentos no fueron aprobados esta vez."
+        );
+      }
       return enviarJSON(res, 200, { conductor });
     }
 
@@ -664,6 +695,15 @@ const server = http.createServer(async (req, res) => {
         });
       }
       await conductoresStore.marcarOcupado(conductorId);
+      if (resultado.pedido.usuarioId) {
+        const cliente = await usuariosStore.obtener(resultado.pedido.usuarioId);
+        enviarNotificacion(
+          cliente?.fcmToken,
+          "¡Ya tienes conductor!",
+          "Un conductor confirmó tu pedido y va en camino.",
+          { pedidoId: resultado.pedido.id }
+        );
+      }
       return enviarJSON(res, 200, { pedido: resultado.pedido });
     }
 
@@ -751,6 +791,12 @@ const server = http.createServer(async (req, res) => {
             Number(body.estrellas)
           );
         }
+        enviarNotificacion(
+          usuario?.fcmToken,
+          "Pedido entregado",
+          "Tu pedido llegó — no olvides calificar a tu conductor.",
+          { pedidoId: pedido.id }
+        );
       }
 
       return enviarJSON(res, 200, { pedido, usuario });
@@ -882,6 +928,18 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { conductor });
     }
 
+    // POST /conductor/:id/fcm-token  { fcmToken: '...' } — mismo
+    // patrón que en usuario, para las notificaciones push.
+    if (req.method === "POST" && partes[0] === "conductor" && partes[2] === "fcm-token") {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
+      const body = await leerCuerpo(req);
+      if (!body.fcmToken) return enviarJSON(res, 400, { error: "Falta fcmToken" });
+      await conductoresStore.guardarFcmToken(partes[1], body.fcmToken);
+      return enviarJSON(res, 200, { guardado: true });
+    }
+
     // POST /usuario/registrar — solo puede registrar su propio perfil
     if (req.method === "POST" && req.url === "/usuario/registrar") {
       const uid = await verificarToken(req);
@@ -923,6 +981,19 @@ const server = http.createServer(async (req, res) => {
       const usuario = await usuariosStore.vincularRestaurante(partes[1], body.restauranteId);
       if (!usuario) return enviarJSON(res, 404, { error: "Usuario no registrado" });
       return enviarJSON(res, 200, { usuario });
+    }
+
+    // POST /usuario/:id/fcm-token  { fcmToken: '...' } — solo uno
+    // mismo puede registrar el token de SU propio celular, para
+    // recibir notificaciones push. Se llama cada vez que abre sesión.
+    if (req.method === "POST" && partes[0] === "usuario" && partes[2] === "fcm-token") {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
+      const body = await leerCuerpo(req);
+      if (!body.fcmToken) return enviarJSON(res, 400, { error: "Falta fcmToken" });
+      await usuariosStore.guardarFcmToken(partes[1], body.fcmToken);
+      return enviarJSON(res, 200, { guardado: true });
     }
 
     // POST /usuario/:id/telefono/verificar — solo uno mismo puede

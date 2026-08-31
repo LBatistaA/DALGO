@@ -177,6 +177,17 @@ async function buscarPorTelefonoVerificado(telefono) {
   return encontrado || null;
 }
 
+// Se llama cada vez que la app arranca o inicia sesión — el token
+// puede cambiar (reinstalación, cambio de celular), así que siempre
+// se sobrescribe con el más reciente, no se acumula historial.
+async function guardarFcmToken(id, fcmToken) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.update({ fcmToken });
+  return { ...snap.data(), fcmToken };
+}
+
 module.exports = {
   registrar,
   obtener,
@@ -189,4 +200,5 @@ module.exports = {
   buscarPorTelefonoVerificado,
   buscarPorCodigo,
   vincularRestaurante,
+  guardarFcmToken,
 };

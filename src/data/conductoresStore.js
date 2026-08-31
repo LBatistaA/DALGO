@@ -140,6 +140,16 @@ async function marcarDisponible(id) {
   return { ...snap.data(), ocupado: false };
 }
 
+// Mismo criterio que en usuariosStore: siempre se sobrescribe con el
+// token más reciente, nunca se acumula historial de tokens viejos.
+async function guardarFcmToken(id, fcmToken) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.update({ fcmToken });
+  return { ...snap.data(), fcmToken };
+}
+
 async function marcarPausado(id, pausado) {
   const ref = db.collection(COLECCION).doc(id);
   const snap = await ref.get();
@@ -246,6 +256,7 @@ module.exports = {
   actualizarZona,
   marcarOcupado,
   marcarDisponible,
+  guardarFcmToken,
   disponibles,
   todos,
 };

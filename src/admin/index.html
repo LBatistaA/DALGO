@@ -1046,8 +1046,23 @@ let filtroPedidoActual = 'Todos';
 const FILTROS_PEDIDOS = ['Todos', 'En proceso', 'Entregados', 'Cancelados'];
 
 let temporizadorEnVivo = null;
+let seccionActual = 'aliados';
+
+// Si el navegador pone esta pestaña de fondo (el usuario cambia a
+// otra pestaña, minimiza, o bloquea el celular), se detiene el
+// refresco automático — así no se sigue consultando la base de
+// datos sin que nadie la esté viendo. Se reanuda solo al volver.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    clearInterval(temporizadorEnVivo);
+  } else if (seccionActual === 'envivo') {
+    cargarEnVivo();
+    temporizadorEnVivo = setInterval(cargarEnVivo, 30000);
+  }
+});
 
 function cambiarSeccion(seccion) {
+  seccionActual = seccion;
   document.getElementById('pestanaEnVivo').classList.toggle('activa', seccion === 'envivo');
   document.getElementById('pestanaAliados').classList.toggle('activa', seccion === 'aliados');
   document.getElementById('pestanaPedidos').classList.toggle('activa', seccion === 'pedidos');
