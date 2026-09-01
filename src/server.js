@@ -404,8 +404,12 @@ const server = http.createServer(async (req, res) => {
         if (conductor && c.lat != null && c.lng != null) {
           conductor.lat = c.lat;
           conductor.lng = c.lng;
+          // Antes de "Llegué" (recogió en el Aliado), el punto que
+          // importa es el origen; después, el destino final.
+          const puntoRelevante =
+            pedido.estado === "en_servicio" ? pedido.destino : pedido.origen;
           conductor.minutosEstimados = Math.round(
-            (distanciaKm({ lat: c.lat, lng: c.lng }, pedido.origen) /
+            (distanciaKm({ lat: c.lat, lng: c.lng }, puntoRelevante) /
               fareConfig.velocidadPromedioKmh) *
               60
           );
@@ -739,6 +743,15 @@ const server = http.createServer(async (req, res) => {
       if (!pedidoActual) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
       if (pedidoActual.conductorId !== uid) return prohibido(res);
       const pedido = await pedidosStore.actualizarEstado(partes[1], "en_servicio");
+      if (pedido.usuarioId) {
+        const cliente = await usuariosStore.obtener(pedido.usuarioId);
+        enviarNotificacion(
+          cliente?.fcmToken,
+          "Tu pedido va en camino",
+          "El conductor recogió tu pedido y viene hacia ti.",
+          { pedidoId: pedido.id }
+        );
+      }
       return enviarJSON(res, 200, { pedido });
     }
 
