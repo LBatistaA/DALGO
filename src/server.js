@@ -794,10 +794,17 @@ const server = http.createServer(async (req, res) => {
 
       let usuario = null;
       if (pedido.usuarioId) {
-        usuario = await usuariosStore.agregarMoviCoins(
-          pedido.usuarioId,
-          fareConfig.moviCoinsPorViaje
-        );
+        // MoviCoins solo para carrera por ahora — delivery/Aliados
+        // queda sin acumular mientras se decide si se retoma más
+        // adelante.
+        if (pedido.tipoServicio === "carrera") {
+          usuario = await usuariosStore.agregarMoviCoins(
+            pedido.usuarioId,
+            fareConfig.moviCoinsPorViaje
+          );
+        } else {
+          usuario = await usuariosStore.obtener(pedido.usuarioId);
+        }
         if (body.estrellas) {
           usuario = await usuariosStore.agregarCalificacion(
             pedido.usuarioId,
