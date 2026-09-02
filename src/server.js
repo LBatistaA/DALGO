@@ -1,6 +1,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { calcularTarifa } = require("./services/fareService");
 const { buscarCandidatos } = require("./services/dispatchService");
 const { enviarNotificacion } = require("./services/notificationService");
@@ -77,7 +78,16 @@ function esAdmin(req) {
   const secreto = process.env.ADMIN_SECRET;
   if (!secreto) return false; // sin la variable configurada, nadie pasa
   const recibido = req.headers["x-admin-secret"] || req.headers["X-Admin-Secret"];
-  return recibido === secreto;
+  if (!recibido || recibido.length !== secreto.length) return false;
+  // Comparación a tiempo constante — con === normal, alguien podría
+  // en teoría medir cuánto tarda la respuesta para ir adivinando la
+  // clave letra por letra. timingSafeEqual tarda siempre lo mismo,
+  // sin importar en qué letra falle la comparación.
+  try {
+    return crypto.timingSafeEqual(Buffer.from(recibido), Buffer.from(secreto));
+  } catch {
+    return false;
+  }
 }
 
 function noAutorizado(res, mensaje) {
@@ -387,15 +397,22 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // GET /pedido/:id — cualquiera de los involucrados puede consultarlo;
-    // basta con estar autenticado (no hace falta ser específicamente uno
-    // de los dos, porque un conductor candidato también necesita verlo
-    // antes de aceptar).
+    // GET /pedido/:id — solo quien es parte real de este pedido: el
+    // cliente, el conductor ya asignado, o alguno de los candidatos
+    // (un conductor candidato también necesita verlo antes de
+    // aceptar). Antes bastaba con estar autenticado como cualquiera,
+    // lo cual dejaba ver nombre, teléfono y ubicación de otra gente.
     if (req.method === "GET" && partes[0] === "pedido" && partes.length === 2) {
       const uid = await verificarToken(req);
       if (!uid) return noAutorizado(res);
       const pedido = await pedidosStore.obtenerPorId(partes[1]);
       if (!pedido) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
+      const esParteDelPedido =
+        uid === pedido.usuarioId ||
+        uid === pedido.conductorId ||
+        uid === pedido.creadoPorId ||
+        (pedido.candidatos || []).includes(uid);
+      if (!esParteDelPedido) return prohibido(res);
 
       let conductor = null;
       if (pedido.conductorId) {
