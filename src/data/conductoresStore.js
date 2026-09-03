@@ -174,10 +174,51 @@ async function actualizarZona(id, zona) {
   return { ...snap.data(), zona };
 }
 
+// Datos de Pago Móvil del conductor — para que el cliente pueda
+// pagarle directamente el viaje de una carrera. Nada de esto se
+// muestra a nadie automáticamente; solo se expone dentro de un
+// pedido específico, y solo mientras ese pedido siga activo (ver
+// GET /pedido/:id en server.js).
+async function actualizarPagoMovil(id, { documento, telefono, banco }) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  const pagoMovil = { documento, telefono, banco };
+  await ref.update({ pagoMovil });
+  return { ...snap.data(), pagoMovil };
+}
+
 // Conductores que ahora mismo podrían recibir un pedido nuevo, filtrando
 // opcionalmente por tipo de vehículo ('moto' | 'carro' | null = cualquiera)
 // y por tipo de servicio ('carrera' | 'delivery' | null = cualquiera).
-async function disponibles(tipoVehiculo, tipoServicio) {
+// Suma la comisión de un viaje a la deuda acumulada del conductor.
+// El cliente le paga directo (Pago Móvil), así que la app nunca toca
+// ese dinero — solo lleva la cuenta de lo que el conductor le debe a
+// M.O.V.I. por usar la plataforma.
+async function sumarComision(id, monto) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  const actual = Number(snap.data().deudaComision || 0);
+  const nueva = Number((actual + monto).toFixed(2));
+  await ref.update({ deudaComision: nueva });
+  return { ...snap.data(), deudaComision: nueva };
+}
+
+// Registra que el conductor pagó (total o parcialmente) su deuda.
+// Solo el administrador puede hacer esto, tras verificar el pago.
+async function registrarPagoComision(id, monto) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  const actual = Number(snap.data().deudaComision || 0);
+  // Nunca dejar la deuda en negativo, aunque paguen de más.
+  const nueva = Math.max(0, Number((actual - monto).toFixed(2)));
+  await ref.update({ deudaComision: nueva });
+  return { ...snap.data(), deudaComision: nueva };
+}
+
+async function disponibles(tipoVehiculo, tipoServicio, limiteDeuda) {
   const snap = await db
     .collection(COLECCION)
     .where("estadoVerificacion", "==", "aprobado")
@@ -191,6 +232,9 @@ async function disponibles(tipoVehiculo, tipoServicio) {
       !c.ocupado &&
       c.lat != null &&
       c.lng != null &&
+      // Con deuda por encima del límite deja de recibir viajes hasta
+      // que pague. Sin límite definido, no se bloquea a nadie.
+      (!limiteDeuda || Number(c.deudaComision || 0) < limiteDeuda) &&
       (!tipoVehiculo || c.tipoVehiculo === tipoVehiculo) &&
       (!tipoServicio || c.serviciosActivos?.[tipoServicio] !== false)
   );
@@ -254,9 +298,12 @@ module.exports = {
   marcarPausado,
   actualizarServicios,
   actualizarZona,
+  actualizarPagoMovil,
   marcarOcupado,
   marcarDisponible,
   guardarFcmToken,
+  sumarComision,
+  registrarPagoComision,
   disponibles,
   todos,
 };

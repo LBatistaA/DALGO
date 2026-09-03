@@ -10,6 +10,7 @@ const conductoresStore = require("./data/conductoresStore");
 const pedidosStore = require("./data/pedidosStore");
 const usuariosStore = require("./data/usuariosStore");
 const restaurantesStore = require("./data/restaurantesStore");
+const comprobantesStore = require("./data/comprobantesStore");
 const fareConfig = require("./config/fareConfig");
 const { auth } = require("./firebaseAdmin");
 
@@ -98,6 +99,53 @@ function prohibido(res, mensaje) {
   enviarJSON(res, 403, { error: mensaje || "No tienes permiso para hacer esto" });
 }
 
+// Caché simple en memoria — guarda el resultado de una función por un
+// tiempo determinado, para no golpear Firestore (o una API externa)
+// en cada petición cuando el dato casi no cambia. Vive mientras el
+// proceso esté corriendo; se vacía solo con cada redeploy en Render.
+const _cacheEnMemoria = new Map();
+
+async function conCache(clave, segundosValidez, funcionOrigen) {
+  const entrada = _cacheEnMemoria.get(clave);
+  const ahora = Date.now();
+  if (entrada && ahora - entrada.momento < segundosValidez * 1000) {
+    return entrada.valor;
+  }
+  const valor = await funcionOrigen();
+  _cacheEnMemoria.set(clave, { valor, momento: ahora });
+  return valor;
+}
+
+// Rate limiting simple en memoria — evita que una sola fuente (bug en
+// un timer, o alguien bombardeando la API a propósito) sature el
+// servidor. Ventana deslizante de 10 segundos por IP.
+const _peticionesPorIp = new Map();
+const RATE_LIMIT_VENTANA_MS = 10_000;
+const RATE_LIMIT_MAXIMO = 60; // generoso: cubre varios timers de 2-3s a la vez
+
+function excedeRateLimit(ip) {
+  const ahora = Date.now();
+  const historial = _peticionesPorIp.get(ip) || [];
+  const recientes = historial.filter((t) => ahora - t < RATE_LIMIT_VENTANA_MS);
+  recientes.push(ahora);
+  _peticionesPorIp.set(ip, recientes);
+  return recientes.length > RATE_LIMIT_MAXIMO;
+}
+
+// Limpieza periódica — sin esto, cada IP que alguna vez pasó por aquí
+// se queda en memoria para siempre.
+setInterval(() => {
+  const ahora = Date.now();
+  for (const [ip, historial] of _peticionesPorIp.entries()) {
+    const recientes = historial.filter((t) => ahora - t < RATE_LIMIT_VENTANA_MS);
+    if (recientes.length === 0) {
+      _peticionesPorIp.delete(ip);
+    } else {
+      _peticionesPorIp.set(ip, recientes);
+    }
+  }
+}, 60_000);
+
 // Solo los datos públicos del conductor — nunca sus documentos completos
 function infoPublicaConductor(c) {
   if (!c) return null;
@@ -153,6 +201,21 @@ const server = http.createServer(async (req, res) => {
       "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Admin-Secret",
     });
     return res.end();
+  }
+
+  // Rate limiting — antes que cualquier otra cosa, para no gastar
+  // tiempo de cómputo ni lecturas de Firestore en peticiones que de
+  // todas formas se van a rechazar.
+  const ipPeticion =
+    (req.headers["x-forwarded-for"] || "").split(",")[0].trim() ||
+    req.socket.remoteAddress ||
+    "desconocida";
+  if (excedeRateLimit(ipPeticion)) {
+    res.writeHead(429, {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    });
+    return res.end(JSON.stringify({ error: "Demasiadas peticiones — espera un momento" }));
   }
 
   // GET /admin — sirve el panel de administrador como página web,
@@ -418,6 +481,13 @@ const server = http.createServer(async (req, res) => {
       if (pedido.conductorId) {
         const c = await conductoresStore.obtener(pedido.conductorId);
         conductor = infoPublicaConductor(c);
+        // Pago Móvil del conductor — solo para carrera (taxi), y solo
+        // si el conductor ya configuró sus datos. No va en
+        // infoPublicaConductor porque esa función también se usa en
+        // /conductor/:id, donde no aplica mostrarlo.
+        if (conductor && pedido.tipoServicio === "carrera" && c.pagoMovil) {
+          conductor.pagoMovil = c.pagoMovil;
+        }
         if (conductor && c.lat != null && c.lng != null) {
           conductor.lat = c.lat;
           conductor.lng = c.lng;
@@ -592,9 +662,17 @@ const server = http.createServer(async (req, res) => {
         0
       );
 
+      const conductorDatos = await conductoresStore.obtener(partes[1]);
+      const deudaComision = Number(conductorDatos?.deudaComision || 0);
+
       return enviarJSON(res, 200, {
         gananciasHoy: Number(gananciasHoy.toFixed(2)),
         serviciosCompletadosHoy: completadosHoy.length,
+        deudaComision,
+        limiteDeudaComision: fareConfig.limiteDeudaComision,
+        bloqueadoPorDeuda:
+          !!fareConfig.limiteDeudaComision &&
+          deudaComision >= fareConfig.limiteDeudaComision,
         actividadReciente: historial
           .filter((p) => p.estado === "completado")
           .slice(0, 10),
@@ -716,6 +794,24 @@ const server = http.createServer(async (req, res) => {
         });
       }
       await conductoresStore.marcarOcupado(conductorId);
+
+      // Distancia a la que estaba el conductor al aceptar — sirve para
+      // saber después si ya recorrió más de la mitad del camino, y en
+      // ese punto el cliente ya no puede cancelar sin cargo.
+      const conductorAlAceptar = await conductoresStore.obtener(conductorId);
+      if (
+        conductorAlAceptar?.lat != null &&
+        conductorAlAceptar?.lng != null &&
+        resultado.pedido.origen
+      ) {
+        const metrosIniciales = Math.round(
+          distanciaKm(
+            { lat: conductorAlAceptar.lat, lng: conductorAlAceptar.lng },
+            { lat: resultado.pedido.origen.lat, lng: resultado.pedido.origen.lng }
+          ) * 1000
+        );
+        await pedidosStore.guardarDistanciaInicial(partes[1], metrosIniciales);
+      }
       if (resultado.pedido.usuarioId) {
         const cliente = await usuariosStore.obtener(resultado.pedido.usuarioId);
         enviarNotificacion(
@@ -790,7 +886,151 @@ const server = http.createServer(async (req, res) => {
           error: "Ya no se puede cancelar — el viaje está en curso o ya terminó",
         });
       }
-      const actualizado = await pedidosStore.actualizarEstado(partes[1], "cancelado");
+
+      // Reglas de cancelación, distintas para cada lado:
+      //
+      // CONDUCTOR: dentro de 150 m del punto de recogida ya no puede
+      // cancelar — es ahí donde ocurría el engaño de cancelar para
+      // hacer el viaje por fuera sin pagar comisión.
+      //
+      // CLIENTE: una vez que el conductor recorrió más de la mitad del
+      // camino, cancelar tiene cargo (el conductor ya gastó gasolina y
+      // tiempo viniendo). No se le bloquea, pero se le cobra.
+      let metrosDelOrigen = null;
+      let conductor = null;
+      if (pedido.conductorId && pedido.origen) {
+        conductor = await conductoresStore.obtener(pedido.conductorId);
+        if (conductor?.lat != null && conductor?.lng != null) {
+          metrosDelOrigen = Math.round(
+            distanciaKm(
+              { lat: conductor.lat, lng: conductor.lng },
+              { lat: pedido.origen.lat, lng: pedido.origen.lng }
+            ) * 1000
+          );
+        }
+      }
+
+      if (canceladoPor === "conductor" && metrosDelOrigen != null && metrosDelOrigen <= 150) {
+        return enviarJSON(res, 400, {
+          error:
+            "Ya estás en el punto de recogida — este viaje no se puede cancelar. " +
+            "Si el pasajero no aparece o ya no lo quiere, usa el botón de " +
+            "\"El pasajero canceló\".",
+          metrosDelOrigen,
+        });
+      }
+
+      // ¿El conductor ya recorrió más de la mitad? Si sí, al cliente se
+      // le aplica el cargo por cancelación.
+      let cargoCancelacion = 0;
+      const iniciales = pedido.metrosInicialesConductor;
+      if (
+        canceladoPor === "usuario" &&
+        metrosDelOrigen != null &&
+        iniciales != null &&
+        iniciales > 0 &&
+        metrosDelOrigen < iniciales / 2 &&
+        fareConfig.cargoPorCancelacionTardia > 0
+      ) {
+        cargoCancelacion = fareConfig.cargoPorCancelacionTardia;
+      }
+
+      const body = await leerCuerpo(req);
+      const actualizado = await pedidosStore.cancelar(partes[1], {
+        canceladoPor,
+        faseAlCancelar: pedido.estado,
+        motivo: body.motivo,
+        cargoCancelacion,
+      });
+
+      if (metrosDelOrigen != null) {
+        await pedidosStore.guardarDistanciaCancelacion(partes[1], metrosDelOrigen);
+        actualizado.metrosDelOrigenAlCancelar = metrosDelOrigen;
+      }
+
+      if (cargoCancelacion > 0) {
+        enviarNotificacion(
+          conductor?.fcmToken,
+          "El pasajero canceló",
+          `Te corresponde un cargo de $${cargoCancelacion.toFixed(2)} por el viaje hasta el punto.`,
+          {}
+        );
+      }
+
+      if (pedido.conductorId) {
+        await conductoresStore.marcarDisponible(pedido.conductorId);
+      }
+      return enviarJSON(res, 200, { pedido: actualizado, cargoCancelacion });
+    }
+
+    // POST /pedido/:id/pasajero-cancelo — solo el conductor asignado.
+    // Para cuando el pasajero le dice en el sitio que ya no quiere el
+    // viaje: cierra el viaje con el cargo por cancelación a favor del
+    // conductor (se lo cobra ahí mismo, igual que la tarifa normal).
+    if (
+      req.method === "POST" &&
+      partes[0] === "pedido" &&
+      partes[2] === "pasajero-cancelo"
+    ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      const pedido = await pedidosStore.obtenerPorId(partes[1]);
+      if (!pedido) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
+      if (pedido.conductorId !== uid) return prohibido(res);
+      if (pedido.estado === "completado" || pedido.estado === "cancelado") {
+        return enviarJSON(res, 400, { error: "Este viaje ya terminó" });
+      }
+
+      const cargo = fareConfig.cargoPorCancelacionTardia || 0;
+      const actualizado = await pedidosStore.cancelar(partes[1], {
+        canceladoPor: "usuario_en_sitio",
+        faseAlCancelar: pedido.estado,
+        motivo: "El pasajero canceló en el punto de encuentro",
+        cargoCancelacion: cargo,
+      });
+
+      // Se cobra comisión sobre el cargo, igual que en un viaje normal:
+      // el conductor sí recibió dinero, y así este botón no sirve para
+      // esquivar la comisión.
+      if (cargo > 0 && fareConfig.comisionPorViaje > 0) {
+        await conductoresStore.sumarComision(uid, fareConfig.comisionPorViaje);
+      }
+
+      if (pedido.usuarioId) {
+        const cliente = await usuariosStore.obtener(pedido.usuarioId);
+        enviarNotificacion(
+          cliente?.fcmToken,
+          "Viaje cancelado",
+          `Se registró un cargo de $${cargo.toFixed(2)} por la cancelación.`,
+          { pedidoId: pedido.id }
+        );
+      }
+
+      await conductoresStore.marcarDisponible(uid);
+      return enviarJSON(res, 200, { pedido: actualizado, cargo });
+    }
+
+    // POST /pedido/:id/cancelar-admin — SOLO administrador. Salida de
+    // emergencia: cancela cualquier viaje sin importar la distancia
+    // (para cuando el pasajero no apareció y el conductor quedó
+    // atrapado sin poder cancelar él mismo).
+    if (
+      req.method === "POST" &&
+      partes[0] === "pedido" &&
+      partes[2] === "cancelar-admin"
+    ) {
+      if (!esAdmin(req)) return prohibido(res);
+      const pedido = await pedidosStore.obtenerPorId(partes[1]);
+      if (!pedido) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
+      if (pedido.estado === "completado") {
+        return enviarJSON(res, 400, { error: "El viaje ya terminó" });
+      }
+      const body = await leerCuerpo(req);
+      const actualizado = await pedidosStore.cancelar(partes[1], {
+        canceladoPor: "admin",
+        faseAlCancelar: pedido.estado,
+        motivo: body.motivo || "Cancelado por soporte",
+      });
       if (pedido.conductorId) {
         await conductoresStore.marcarDisponible(pedido.conductorId);
       }
@@ -808,6 +1048,36 @@ const server = http.createServer(async (req, res) => {
       const body = await leerCuerpo(req);
       const pedido = await pedidosStore.actualizarEstado(partes[1], "completado");
       await conductoresStore.marcarDisponible(pedido.conductorId);
+
+      // Comisión de M.O.V.I. por el viaje — se suma a lo que el
+      // conductor debe. El cobro en sí es aparte (el cliente le paga a
+      // él directo), esto solo lleva la cuenta.
+      let conductorActualizado = null;
+      if (pedido.conductorId && fareConfig.comisionPorViaje > 0) {
+        conductorActualizado = await conductoresStore.sumarComision(
+          pedido.conductorId,
+          fareConfig.comisionPorViaje
+        );
+        // Aviso cuando ya está cerca del límite, para que no lo agarre
+        // por sorpresa quedarse sin recibir viajes.
+        const deuda = Number(conductorActualizado?.deudaComision || 0);
+        const limite = fareConfig.limiteDeudaComision;
+        if (limite && deuda >= limite) {
+          enviarNotificacion(
+            conductorActualizado?.fcmToken,
+            "Alcanzaste el límite de comisiones",
+            `Debes $${deuda.toFixed(2)}. No recibirás viajes nuevos hasta ponerte al día.`,
+            {}
+          );
+        } else if (limite && deuda >= limite * 0.8) {
+          enviarNotificacion(
+            conductorActualizado?.fcmToken,
+            "Comisiones por pagar",
+            `Llevas $${deuda.toFixed(2)} en comisiones. Al llegar a $${limite.toFixed(2)} dejarás de recibir viajes.`,
+            {}
+          );
+        }
+      }
 
       let usuario = null;
       if (pedido.usuarioId) {
@@ -837,6 +1107,202 @@ const server = http.createServer(async (req, res) => {
       }
 
       return enviarJSON(res, 200, { pedido, usuario });
+    }
+
+    // GET /configuracion/pago-movil — los datos de Pago Móvil de
+    // M.O.V.I., para que el conductor sepa a dónde transferir. Los ve
+    // cualquier conductor autenticado; solo el admin los cambia.
+    if (req.method === "GET" && req.url === "/configuracion/pago-movil") {
+      if (!esAdmin(req)) {
+        const uid = await verificarToken(req);
+        if (!uid) return noAutorizado(res);
+      }
+      const datos = await comprobantesStore.obtenerPagoMovilEmpresa();
+      return enviarJSON(res, 200, { pagoMovil: datos });
+    }
+
+    // POST /configuracion/pago-movil — SOLO administrador
+    if (req.method === "POST" && req.url === "/configuracion/pago-movil") {
+      if (!esAdmin(req)) return prohibido(res);
+      const body = await leerCuerpo(req);
+      if (!body.documento || !body.telefono || !body.banco) {
+        return enviarJSON(res, 400, { error: "Faltan documento, teléfono o banco" });
+      }
+      const datos = await comprobantesStore.guardarPagoMovilEmpresa(body);
+      return enviarJSON(res, 200, { pagoMovil: datos });
+    }
+
+    // POST /conductor/:id/comprobante { monto, imagen } — el conductor
+    // sube el comprobante de su transferencia. Queda en espera hasta
+    // que el administrador lo revise; la deuda NO baja todavía.
+    if (
+      req.method === "POST" &&
+      partes[0] === "conductor" &&
+      partes[2] === "comprobante"
+    ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
+      const body = await leerCuerpo(req);
+      const monto = Number(body.monto);
+      if (!monto || monto <= 0) {
+        return enviarJSON(res, 400, { error: "Falta un monto válido" });
+      }
+      if (!body.imagen) {
+        return enviarJSON(res, 400, { error: "Falta la imagen del comprobante" });
+      }
+      const conductor = await conductoresStore.obtener(partes[1]);
+      const comprobante = await comprobantesStore.crear({
+        conductorId: partes[1],
+        conductorNombre: conductor?.nombre,
+        monto,
+        imagen: body.imagen,
+      });
+      return enviarJSON(res, 200, { comprobante });
+    }
+
+    // GET /conductor/:id/comprobantes — su propio historial de envíos
+    if (
+      req.method === "GET" &&
+      partes[0] === "conductor" &&
+      partes[2] === "comprobantes"
+    ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
+      const comprobantes = await comprobantesStore.porConductor(partes[1]);
+      return enviarJSON(res, 200, { comprobantes });
+    }
+
+    // GET /comprobantes — SOLO administrador, para revisarlos
+    if (req.method === "GET" && req.url === "/comprobantes") {
+      if (!esAdmin(req)) return prohibido(res);
+      const comprobantes = await comprobantesStore.todos();
+      return enviarJSON(res, 200, { comprobantes });
+    }
+
+    // GET /comprobante/:id/imagen — SOLO administrador
+    if (
+      req.method === "GET" &&
+      partes[0] === "comprobante" &&
+      partes[2] === "imagen"
+    ) {
+      if (!esAdmin(req)) return prohibido(res);
+      const imagen = await comprobantesStore.obtenerImagen(partes[1]);
+      return enviarJSON(res, 200, { imagen });
+    }
+
+    // POST /comprobante/:id/revisar { aprobado, motivo } — SOLO admin.
+    // Al aprobar se descuenta el monto de la deuda del conductor; si
+    // estaba bloqueado, vuelve a recibir viajes automáticamente.
+    if (
+      req.method === "POST" &&
+      partes[0] === "comprobante" &&
+      partes[2] === "revisar"
+    ) {
+      if (!esAdmin(req)) return prohibido(res);
+      const body = await leerCuerpo(req);
+      const comprobante = await comprobantesStore.obtener(partes[1]);
+      if (!comprobante) return enviarJSON(res, 404, { error: "Comprobante no encontrado" });
+      if (comprobante.estado !== "pendiente") {
+        return enviarJSON(res, 400, { error: "Este comprobante ya fue revisado" });
+      }
+
+      const aprobado = !!body.aprobado;
+      // El admin puede corregir el monto: el conductor declara lo que
+      // dice haber transferido, pero lo que se descuenta es lo que el
+      // administrador confirma haber recibido de verdad.
+      const montoADescontar =
+        body.monto != null && Number(body.monto) > 0
+          ? Number(body.monto)
+          : comprobante.monto;
+
+      const actualizado = await comprobantesStore.marcarRevisado(
+        partes[1],
+        aprobado ? "aprobado" : "rechazado",
+        body.motivo,
+        aprobado ? montoADescontar : null
+      );
+
+      let conductor = null;
+      if (aprobado) {
+        conductor = await conductoresStore.registrarPagoComision(
+          comprobante.conductorId,
+          montoADescontar
+        );
+      }
+
+      const conductorDatos =
+        conductor || (await conductoresStore.obtener(comprobante.conductorId));
+      enviarNotificacion(
+        conductorDatos?.fcmToken,
+        aprobado ? "Pago confirmado" : "Comprobante rechazado",
+        aprobado
+          ? `Se descontaron $${montoADescontar.toFixed(2)} de tus comisiones.`
+          : body.motivo || "Revisa el comprobante y vuelve a enviarlo.",
+        {}
+      );
+
+      return enviarJSON(res, 200, { comprobante: actualizado, conductor });
+    }
+
+    // GET /conductores/cancelaciones — SOLO administrador. Resumen por
+    // conductor para detectar el patrón de "cancela justo al llegar".
+    if (req.method === "GET" && req.url === "/conductores/cancelaciones") {
+      if (!esAdmin(req)) return prohibido(res);
+      const todosPedidos = await pedidosStore.todos();
+      const porConductor = {};
+      for (const p of todosPedidos) {
+        if (!p.conductorId) continue;
+        const c = (porConductor[p.conductorId] ??= {
+          conductorId: p.conductorId,
+          total: 0,
+          completados: 0,
+          canceladosPorConductor: 0,
+          canceladosPorCliente: 0,
+          canceladosCercaDelOrigen: 0,
+        });
+        c.total++;
+        if (p.estado === "completado") c.completados++;
+        if (p.estado === "cancelado") {
+          if (p.canceladoPor === "conductor") c.canceladosPorConductor++;
+          if (p.canceladoPor === "usuario") c.canceladosPorCliente++;
+          if (p.metrosDelOrigenAlCancelar != null && p.metrosDelOrigenAlCancelar <= 150) {
+            c.canceladosCercaDelOrigen++;
+          }
+        }
+      }
+      const conductoresTodos = await conductoresStore.todos();
+      const resumen = Object.values(porConductor).map((c) => {
+        const datos = conductoresTodos.find((x) => x.id === c.conductorId);
+        const cancelados = c.canceladosPorConductor + c.canceladosPorCliente;
+        return {
+          ...c,
+          nombre: datos?.nombre || "Sin nombre",
+          tasaCancelacion: c.total > 0 ? Number(((cancelados / c.total) * 100).toFixed(1)) : 0,
+        };
+      });
+      resumen.sort((a, b) => b.canceladosCercaDelOrigen - a.canceladosCercaDelOrigen);
+      return enviarJSON(res, 200, { resumen });
+    }
+
+    // POST /conductor/:id/pago-comision { monto } — SOLO administrador.
+    // Se usa cuando el conductor ya te transfirió lo que debía: baja su
+    // deuda y, si estaba bloqueado, vuelve a recibir viajes.
+    if (
+      req.method === "POST" &&
+      partes[0] === "conductor" &&
+      partes[2] === "pago-comision"
+    ) {
+      if (!esAdmin(req)) return prohibido(res);
+      const body = await leerCuerpo(req);
+      const monto = Number(body.monto);
+      if (!monto || monto <= 0) {
+        return enviarJSON(res, 400, { error: "Falta un monto válido" });
+      }
+      const conductor = await conductoresStore.registrarPagoComision(partes[1], monto);
+      if (!conductor) return enviarJSON(res, 404, { error: "Conductor no registrado" });
+      return enviarJSON(res, 200, { conductor });
     }
 
     // POST /conductor/:id/pausa — solo el conductor mismo
@@ -961,6 +1427,28 @@ const server = http.createServer(async (req, res) => {
       if (uid !== partes[1]) return prohibido(res);
       const body = await leerCuerpo(req);
       const conductor = await conductoresStore.actualizarZona(partes[1], body.zona || null);
+      if (!conductor) return enviarJSON(res, 404, { error: "Conductor no registrado" });
+      return enviarJSON(res, 200, { conductor });
+    }
+
+    // POST /conductor/:id/pago-movil { documento, telefono, banco }
+    // solo el conductor mismo puede guardar sus propios datos
+    if (req.method === "POST" && partes[0] === "conductor" && partes[2] === "pago-movil") {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
+      const body = await leerCuerpo(req);
+      const { documento, telefono, banco } = body;
+      if (!documento || !telefono || !banco) {
+        return enviarJSON(res, 400, {
+          error: "Faltan datos: documento, telefono y banco son requeridos",
+        });
+      }
+      const conductor = await conductoresStore.actualizarPagoMovil(partes[1], {
+        documento,
+        telefono,
+        banco,
+      });
       if (!conductor) return enviarJSON(res, 404, { error: "Conductor no registrado" });
       return enviarJSON(res, 200, { conductor });
     }
@@ -1121,11 +1609,30 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { historial });
     }
 
-    // GET /tasa-bcv — no expone datos privados de nadie, se deja abierta
+    // GET /tasa-bcv — no expone datos privados de nadie, se deja abierta.
+    // El BCV publica una sola vez al día, en días hábiles, alrededor de
+    // las 4:30 PM hora de Caracas (con vigencia para el día siguiente).
+    // Fines de semana y feriados no publica nada: sigue vigente la
+    // última tasa. Así que el caché se ajusta a eso: corto en la
+    // ventana donde podría aparecer la nueva tasa, largo el resto del
+    // tiempo, porque no tiene sentido preguntar si no va a cambiar.
     if (req.method === "GET" && req.url === "/tasa-bcv") {
       try {
-        const respuesta = await fetch("https://bcv.today/api/v1/rate.json");
-        const datos = await respuesta.json();
+        // Hora de Caracas (UTC-4) — el servidor de Render corre en UTC.
+        const ahoraCaracas = new Date(Date.now() - 4 * 60 * 60 * 1000);
+        const horaCaracas = ahoraCaracas.getUTCHours();
+        const diaSemana = ahoraCaracas.getUTCDay(); // 0 = domingo, 6 = sábado
+        const esFinDeSemana = diaSemana === 0 || diaSemana === 6;
+        // Ventana de publicación: entre 2 PM y 7 PM en día hábil. Fuera
+        // de ahí (o en fin de semana) la tasa no va a cambiar.
+        const enVentanaDePublicacion =
+          !esFinDeSemana && horaCaracas >= 14 && horaCaracas < 19;
+        const segundosValidez = enVentanaDePublicacion ? 900 : 21600; // 15 min : 6 h
+
+        const datos = await conCache("tasa-bcv", segundosValidez, async () => {
+          const respuesta = await fetch("https://bcv.today/api/v1/rate.json");
+          return respuesta.json();
+        });
         return enviarJSON(res, 200, {
           tasa: datos.USD,
           fecha: datos.effective_date || datos.date || null,
@@ -1150,18 +1657,22 @@ const server = http.createServer(async (req, res) => {
     // los vea en la app (cualquiera autenticado puede verlos); el
     // panel de administrador también entra aquí, con su propia clave
     // en vez de una sesión de Firebase.
+    // Cacheada 60 seg: es de las rutas más golpeadas (se llama cada vez
+    // que se abre Inicio o Aliados) y la lista casi no cambia.
     if (req.method === "GET" && req.url === "/restaurantes") {
       if (!esAdmin(req)) {
         const uid = await verificarToken(req);
         if (!uid) return noAutorizado(res);
       }
-      const restaurantes = (await restaurantesStore.obtenerTodos()).map(
-        conCalificacionPromedio
-      );
+      const restaurantes = await conCache("restaurantes-lista", 60, async () => {
+        return (await restaurantesStore.obtenerTodos()).map(conCalificacionPromedio);
+      });
       return enviarJSON(res, 200, { restaurantes });
     }
 
-    // GET /restaurantes/:id — datos del restaurante + su menú completo
+    // GET /restaurantes/:id — datos del restaurante + su menú completo.
+    // Cacheada 60 seg, igual que la lista — se abre cada vez que un
+    // cliente entra al menú de un Aliado.
     if (
       req.method === "GET" &&
       partes[0] === "restaurantes" &&
@@ -1171,10 +1682,14 @@ const server = http.createServer(async (req, res) => {
         const uid = await verificarToken(req);
         if (!uid) return noAutorizado(res);
       }
-      const restaurante = await restaurantesStore.obtener(partes[1]);
-      if (!restaurante) return enviarJSON(res, 404, { error: "Restaurante no encontrado" });
-      const productos = await restaurantesStore.obtenerProductos(partes[1]);
-      return enviarJSON(res, 200, { restaurante: conCalificacionPromedio(restaurante), productos });
+      const datos = await conCache(`restaurante-${partes[1]}`, 60, async () => {
+        const restaurante = await restaurantesStore.obtener(partes[1]);
+        if (!restaurante) return null;
+        const productos = await restaurantesStore.obtenerProductos(partes[1]);
+        return { restaurante: conCalificacionPromedio(restaurante), productos };
+      });
+      if (!datos) return enviarJSON(res, 404, { error: "Restaurante no encontrado" });
+      return enviarJSON(res, 200, datos);
     }
 
     // POST /restaurantes — SOLO administrador (mientras Dalgo no tenga

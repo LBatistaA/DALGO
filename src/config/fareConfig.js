@@ -29,4 +29,16 @@ module.exports = {
 
   // MoviCoins que gana el usuario cada vez que completa un viaje/entrega
   moviCoinsPorViaje: 10,
+
+  // Comisión de M.O.V.I. por cada viaje completado. El cliente le paga
+  // al conductor directo (Pago Móvil), así que la app no toca ese
+  // dinero: solo lleva la cuenta de lo que el conductor debe. Cuando
+  // su deuda llega al límite, deja de recibir viajes hasta que pague.
+  comisionPorViaje: 0.1, // USD
+  limiteDeudaComision: 5.0, // USD — al llegar aquí, se bloquea
+
+  // Cargo que paga el cliente si cancela cuando el conductor ya
+  // recorrió más de la mitad del camino, o si le dice en el sitio que
+  // ya no quiere el viaje. Se lo cobra el conductor directamente.
+  cargoPorCancelacionTardia: 1.0, // USD
 };

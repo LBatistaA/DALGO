@@ -469,6 +469,7 @@
       <button class="botonPestana activa" id="pestanaAliados" onclick="cambiarSeccion('aliados')">Aliados</button>
       <button class="botonPestana" id="pestanaPedidos" onclick="cambiarSeccion('pedidos')">Pedidos</button>
       <button class="botonPestana" id="pestanaConductores" onclick="cambiarSeccion('conductores')">Conductores</button>
+      <button class="botonPestana" id="pestanaComisiones" onclick="cambiarSeccion('comisiones')">Comisiones</button>
     </div>
 
     <!-- ===== SECCIÓN EN VIVO ===== -->
@@ -554,6 +555,43 @@
       </div>
       <div class="filaChips" id="chipsFiltroConductores"></div>
       <div id="listaConductores"><div class="cargando">Cargando...</div></div>
+    </div>
+
+    <div id="seccionComisionesMain" style="display:none">
+      <div class="filaEncabezadoSeccion">
+        <h2>Comisiones</h2>
+      </div>
+
+      <div class="tarjetaBlanca" style="margin-bottom:20px">
+        <h3 style="margin:0 0 4px; font-size:15px">Tus datos de Pago Móvil</h3>
+        <div class="notaAyuda" style="margin-bottom:12px">
+          Esto es lo que ven todos los conductores para transferirte sus comisiones.
+        </div>
+        <label class="etiquetaCampo" style="margin-top:0">Titular</label>
+        <input type="text" id="campoTitularEmpresa" placeholder="Ej. Luis Batista">
+        <label class="etiquetaCampo">Cédula / RIF</label>
+        <input type="text" id="campoDocumentoEmpresa" placeholder="Ej. V-12345678">
+        <label class="etiquetaCampo">Teléfono</label>
+        <input type="text" id="campoTelefonoEmpresa" placeholder="Ej. 04141234567">
+        <label class="etiquetaCampo">Banco</label>
+        <input type="text" id="campoBancoEmpresa" placeholder="Ej. 0134 - Banesco">
+        <button class="botonPildora botonVerde" style="width:100%; margin-top:14px" onclick="guardarPagoMovilEmpresa()">Guardar datos</button>
+      </div>
+
+      <div class="filaEncabezadoSeccion">
+        <h2 style="font-size:16px">Comprobantes recibidos</h2>
+      </div>
+      <div class="filaChips" id="chipsFiltroComprobantes"></div>
+      <div id="listaComprobantes"><div class="cargando">Cargando...</div></div>
+
+      <div class="filaEncabezadoSeccion" style="margin-top:24px">
+        <h2 style="font-size:16px">Cancelaciones por conductor</h2>
+      </div>
+      <div class="notaAyuda" style="margin-bottom:10px">
+        Ojo con los que cancelan seguido estando ya en el punto de recogida — puede ser
+        que estén haciendo el viaje por fuera.
+      </div>
+      <div id="listaCancelaciones"><div class="cargando">Cargando...</div></div>
     </div>
   </main>
 </div>
@@ -1067,16 +1105,21 @@ function cambiarSeccion(seccion) {
   document.getElementById('pestanaAliados').classList.toggle('activa', seccion === 'aliados');
   document.getElementById('pestanaPedidos').classList.toggle('activa', seccion === 'pedidos');
   document.getElementById('pestanaConductores').classList.toggle('activa', seccion === 'conductores');
+  document.getElementById('pestanaComisiones').classList.toggle('activa', seccion === 'comisiones');
   document.getElementById('seccionEnVivoMain').style.display = seccion === 'envivo' ? 'block' : 'none';
   document.getElementById('seccionAliadosMain').style.display = seccion === 'aliados' ? 'block' : 'none';
   document.getElementById('seccionPedidosMain').style.display = seccion === 'pedidos' ? 'block' : 'none';
   document.getElementById('seccionConductoresMain').style.display = seccion === 'conductores' ? 'block' : 'none';
+  document.getElementById('seccionComisionesMain').style.display = seccion === 'comisiones' ? 'block' : 'none';
 
   if (seccion === 'pedidos' && !pedidosYaCargados) {
     cargarPedidos();
   }
   if (seccion === 'conductores') {
     cargarConductores();
+  }
+  if (seccion === 'comisiones') {
+    cargarComisiones();
   }
 
   clearInterval(temporizadorEnVivo);
@@ -1588,6 +1631,11 @@ function renderizarListaConductores() {
       : c.estadoVerificacion === 'rechazado'
         ? { bg: '#FEE2E2', texto: '#DC2626' }
         : { bg: '#FEF3C7', texto: '#B45309' };
+    const deuda = Number(c.deudaComision || 0);
+    const bloqueado = deuda >= LIMITE_DEUDA;
+    const textoDeuda = deuda > 0
+      ? `<span style="color:${bloqueado ? '#DC2626' : '#B45309'}; font-weight:600"> · Debe $${deuda.toFixed(2)}${bloqueado ? ' (bloqueado)' : ''}</span>`
+      : '';
     return `
       <div class="tarjetaAliado" onclick="abrirDetalleConductor('${c.id}')">
         <div class="iconoAliado">${c.tipoVehiculo === 'moto' ? '🏍️' : '🚗'}</div>
@@ -1596,12 +1644,32 @@ function renderizarListaConductores() {
             <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${c.enLinea ? '#22C55E' : '#9CA3AF'}; margin-right:6px"></span>
             ${escaparHTML(c.nombre || 'Sin nombre')}
           </div>
-          <div class="metaAliado">${c.enLinea ? 'En línea' : 'Desconectado'}${c.telefono ? ' · ' + escaparHTML(c.telefono) : ''}${c.placa ? ' · ' + escaparHTML(c.placa) : ''}</div>
+          <div class="metaAliado">${c.enLinea ? 'En línea' : 'Desconectado'}${c.telefono ? ' · ' + escaparHTML(c.telefono) : ''}${c.placa ? ' · ' + escaparHTML(c.placa) : ''}${textoDeuda}</div>
         </div>
         <div class="insigniaEstado" style="background:${colorEstado.bg}; color:${colorEstado.texto}">${c.estadoVerificacion}</div>
       </div>
     `;
   }).join('');
+}
+
+// Debe coincidir con limiteDeudaComision en config/fareConfig.js
+const LIMITE_DEUDA = 5.0;
+
+async function registrarPagoComision(id, deudaActual) {
+  const entrada = prompt(`¿Cuánto pagó este conductor? (debe $${deudaActual.toFixed(2)})`, deudaActual.toFixed(2));
+  if (entrada === null) return;
+  const monto = Number(entrada);
+  if (!monto || monto <= 0) {
+    alert('Escribe un monto válido.');
+    return;
+  }
+  try {
+    await llamarAPI('POST', `/conductor/${id}/pago-comision`, { monto });
+    await cargarConductores();
+    cerrarPanelConductor();
+  } catch (e) {
+    alert('No se pudo registrar el pago: ' + e.message);
+  }
 }
 
 async function verificarConductor(id, aprobado) {
@@ -1635,12 +1703,28 @@ async function abrirDetalleConductor(id) {
     `${c.telefono || '—'} · ${c.placa || 'sin placa'} · ${c.colorVehiculo || ''} ${c.tipoVehiculo || ''}`;
 
   const contenedorAcciones = document.getElementById('accionesDetalleConductor');
-  contenedorAcciones.innerHTML = c.estadoVerificacion === 'pendiente'
+  const deuda = Number(c.deudaComision || 0);
+  const bloqueado = deuda >= LIMITE_DEUDA;
+  const bloqueDeuda = c.estadoVerificacion === 'aprobado'
+    ? `
+      <div style="width:100%; margin-top:12px; padding:12px; border-radius:12px; background:${bloqueado ? '#FEE2E2' : '#F3F4F6'}">
+        <div style="font-size:13px; color:#374151; margin-bottom:8px">
+          Comisiones por cobrar:
+          <strong style="color:${bloqueado ? '#DC2626' : '#111827'}">$${deuda.toFixed(2)}</strong>
+          ${bloqueado ? '<br><span style="color:#DC2626; font-size:12px">Bloqueado — no recibe viajes hasta pagar</span>' : ''}
+        </div>
+        ${deuda > 0 ? `<button class="botonPildora botonVerde" style="width:100%" onclick="registrarPagoComision('${c.id}', ${deuda})">Registrar pago</button>` : ''}
+      </div>
+    `
+    : '';
+
+  contenedorAcciones.innerHTML = (c.estadoVerificacion === 'pendiente'
     ? `
       <button class="botonPildora botonContornoRojo" style="flex:1" onclick="verificarConductor('${c.id}', false)">✕ Rechazar</button>
       <button class="botonPildora botonVerde" style="flex:1" onclick="verificarConductor('${c.id}', true)">✓ Aprobar</button>
     `
-    : `<div class="insigniaEstado" style="background:${c.estadoVerificacion === 'aprobado' ? '#DCFCE7' : '#FEE2E2'}; color:${c.estadoVerificacion === 'aprobado' ? '#16A34A' : '#DC2626'}">${c.estadoVerificacion}</div>`;
+    : `<div class="insigniaEstado" style="background:${c.estadoVerificacion === 'aprobado' ? '#DCFCE7' : '#FEE2E2'}; color:${c.estadoVerificacion === 'aprobado' ? '#16A34A' : '#DC2626'}">${c.estadoVerificacion}</div>`
+  ) + bloqueDeuda;
 
   const contenedorFotos = document.getElementById('fotosDetalleConductor');
   contenedorFotos.innerHTML = '<div class="cargando">Cargando fotos...</div>';
@@ -1670,6 +1754,230 @@ async function abrirDetalleConductor(id) {
     `).join('');
   } catch (e) {
     contenedorFotos.innerHTML = `<div class="notaAyuda">No se pudieron cargar las fotos: ${e.message}</div>`;
+  }
+}
+
+// ===== Comisiones: datos de pago y comprobantes =====
+let comprobantes = [];
+let filtroComprobanteActual = 'Pendientes';
+const FILTROS_COMPROBANTES = ['Pendientes', 'Aprobados', 'Rechazados', 'Todos'];
+
+async function cargarComisiones() {
+  try {
+    const datos = await llamarAPI('GET', '/configuracion/pago-movil');
+    const pm = datos.pagoMovil || {};
+    document.getElementById('campoTitularEmpresa').value = pm.titular || '';
+    document.getElementById('campoDocumentoEmpresa').value = pm.documento || '';
+    document.getElementById('campoTelefonoEmpresa').value = pm.telefono || '';
+    document.getElementById('campoBancoEmpresa').value = pm.banco || '';
+  } catch (e) {
+    // sin datos guardados todavía — los campos quedan vacíos
+  }
+  await cargarComprobantes();
+  await cargarCancelaciones();
+}
+
+async function cargarCancelaciones() {
+  const contenedor = document.getElementById('listaCancelaciones');
+  try {
+    const datos = await llamarAPI('GET', '/conductores/cancelaciones');
+    const resumen = datos.resumen || [];
+    if (resumen.length === 0) {
+      contenedor.innerHTML = '<div class="estadoVacio">Todavía no hay viajes registrados.</div>';
+      return;
+    }
+    contenedor.innerHTML = resumen.map(c => {
+      const sospechoso = c.canceladosCercaDelOrigen >= 3;
+      return `
+        <div class="tarjetaAliado" style="${sospechoso ? 'border:1px solid #DC2626' : ''}">
+          <div class="iconoAliado">${sospechoso ? '⚠️' : '📊'}</div>
+          <div class="infoAliado">
+            <div class="nombreAliado">${escaparHTML(c.nombre)}</div>
+            <div class="metaAliado">
+              ${c.completados} completados · ${c.tasaCancelacion}% cancelados
+              ${c.canceladosCercaDelOrigen > 0
+                ? `<br><span style="color:${sospechoso ? '#DC2626' : '#B45309'}; font-weight:600">${c.canceladosCercaDelOrigen} cancelados ya estando en el punto</span>`
+                : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    contenedor.innerHTML = `<div class="estadoVacio">No se pudo cargar: ${e.message}</div>`;
+  }
+}
+
+async function guardarPagoMovilEmpresa() {
+  const cuerpo = {
+    titular: document.getElementById('campoTitularEmpresa').value.trim(),
+    documento: document.getElementById('campoDocumentoEmpresa').value.trim(),
+    telefono: document.getElementById('campoTelefonoEmpresa').value.trim(),
+    banco: document.getElementById('campoBancoEmpresa').value.trim(),
+  };
+  if (!cuerpo.documento || !cuerpo.telefono || !cuerpo.banco) {
+    alert('Completa documento, teléfono y banco.');
+    return;
+  }
+  try {
+    await llamarAPI('POST', '/configuracion/pago-movil', cuerpo);
+    alert('Datos guardados. Ya los ven los conductores en su app.');
+  } catch (e) {
+    alert('No se pudo guardar: ' + e.message);
+  }
+}
+
+async function cargarComprobantes() {
+  const contenedor = document.getElementById('listaComprobantes');
+  try {
+    const datos = await llamarAPI('GET', '/comprobantes');
+    comprobantes = datos.comprobantes || [];
+    renderizarChipsComprobantes();
+    renderizarListaComprobantes();
+  } catch (e) {
+    contenedor.innerHTML = `<div class="estadoVacio">No se pudo cargar: ${e.message}</div>`;
+  }
+}
+
+function renderizarChipsComprobantes() {
+  const contenedor = document.getElementById('chipsFiltroComprobantes');
+  contenedor.innerHTML = FILTROS_COMPROBANTES.map(f => {
+    const cantidad = f === 'Todos'
+      ? comprobantes.length
+      : comprobantes.filter(c => c.estado === f.toLowerCase().slice(0, -1)).length;
+    return `<button class="chipFiltro ${filtroComprobanteActual === f ? 'activo' : ''}" onclick="cambiarFiltroComprobante('${f}')">${f} (${cantidad})</button>`;
+  }).join('');
+}
+
+function cambiarFiltroComprobante(filtro) {
+  filtroComprobanteActual = filtro;
+  renderizarChipsComprobantes();
+  renderizarListaComprobantes();
+}
+
+function renderizarListaComprobantes() {
+  const contenedor = document.getElementById('listaComprobantes');
+  let filtrados = comprobantes;
+  if (filtroComprobanteActual !== 'Todos') {
+    const estado = filtroComprobanteActual.toLowerCase().slice(0, -1);
+    filtrados = comprobantes.filter(c => c.estado === estado);
+  }
+  if (filtrados.length === 0) {
+    contenedor.innerHTML = '<div class="estadoVacio">No hay comprobantes en este filtro.</div>';
+    return;
+  }
+  contenedor.innerHTML = filtrados.map(c => {
+    const color = c.estado === 'aprobado'
+      ? { bg: '#DCFCE7', texto: '#16A34A' }
+      : c.estado === 'rechazado'
+        ? { bg: '#FEE2E2', texto: '#DC2626' }
+        : { bg: '#FEF3C7', texto: '#B45309' };
+    const fecha = (c.creadoEn || '').slice(0, 16).replace('T', ' ');
+    return `
+      <div class="tarjetaAliado" onclick="abrirComprobante('${c.id}')">
+        <div class="iconoAliado">🧾</div>
+        <div class="infoAliado">
+          <div class="nombreAliado">${escaparHTML(c.conductorNombre || 'Conductor')} · $${Number(c.monto).toFixed(2)}</div>
+          <div class="metaAliado">${fecha}</div>
+        </div>
+        <div class="insigniaEstado" style="background:${color.bg}; color:${color.texto}">${c.estado}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function abrirComprobante(id) {
+  const c = comprobantes.find(x => x.id === id);
+  if (!c) return;
+
+  // La deuda real de ese conductor, para comparar contra lo que
+  // declaró. Si "conductores" todavía no está cargado (no entraste a
+  // esa pestaña), lo pedimos ahora.
+  if (!conductores || conductores.length === 0) {
+    try { conductores = await llamarAPI('GET', '/conductores'); } catch (e) { conductores = []; }
+  }
+  const cond = conductores.find(x => x.id === c.conductorId);
+  const deudaReal = cond ? Number(cond.deudaComision || 0) : null;
+  const declarado = Number(c.monto);
+  const noCuadra = deudaReal !== null && Math.abs(declarado - deudaReal) > 0.001;
+
+  document.getElementById('nombreDetalleConductor').textContent =
+    `${c.conductorNombre || 'Conductor'} — declaró $${declarado.toFixed(2)}`;
+  document.getElementById('metaDetalleConductor').textContent =
+    `Enviado ${(c.creadoEn || '').slice(0, 16).replace('T', ' ')} · ${c.estado}`;
+
+  const avisoMonto = c.estado !== 'pendiente'
+    ? (c.montoAprobado != null
+        ? `<div style="width:100%; margin-top:10px; padding:10px; border-radius:10px; background:#F3F4F6; font-size:13px">Se descontaron <strong>$${Number(c.montoAprobado).toFixed(2)}</strong></div>`
+        : '')
+    : `
+      <div style="width:100%; margin-top:10px; padding:10px; border-radius:10px; background:${noCuadra ? '#FEF3C7' : '#F3F4F6'}; font-size:13px">
+        Declaró <strong>$${declarado.toFixed(2)}</strong>${deudaReal !== null ? ` · Debe <strong>$${deudaReal.toFixed(2)}</strong>` : ''}
+        ${noCuadra ? `<br><span style="color:#B45309">⚠ El monto declarado no coincide con su deuda — revisa el comprobante antes de aprobar.</span>` : ''}
+      </div>
+    `;
+
+  const acciones = document.getElementById('accionesDetalleConductor');
+  acciones.innerHTML = (c.estado === 'pendiente'
+    ? `
+      <button class="botonPildora botonContornoRojo" style="flex:1" onclick="revisarComprobante('${c.id}', false)">✕ Rechazar</button>
+      <button class="botonPildora botonVerde" style="flex:1" onclick="revisarComprobante('${c.id}', true)">✓ Aprobar</button>
+    `
+    : `<div class="insigniaEstado" style="background:${c.estado === 'aprobado' ? '#DCFCE7' : '#FEE2E2'}; color:${c.estado === 'aprobado' ? '#16A34A' : '#DC2626'}">${c.estado}</div>`
+  ) + avisoMonto;
+
+  const contenedorFotos = document.getElementById('fotosDetalleConductor');
+  contenedorFotos.innerHTML = '<div class="cargando">Cargando comprobante...</div>';
+  document.getElementById('fondoOscurecidoConductor').style.display = 'block';
+  document.getElementById('panelLateralConductor').style.display = 'block';
+
+  try {
+    const datos = await llamarAPI('GET', `/comprobante/${id}/imagen`);
+    contenedorFotos.innerHTML = datos.imagen
+      ? `<img src="${datos.imagen}" style="width:100%; border-radius:12px; display:block" />`
+      : '<div class="notaAyuda">No se encontró la imagen.</div>';
+  } catch (e) {
+    contenedorFotos.innerHTML = `<div class="notaAyuda">No se pudo cargar: ${e.message}</div>`;
+  }
+}
+
+async function revisarComprobante(id, aprobado) {
+  const c = comprobantes.find(x => x.id === id);
+  if (!c) return;
+  let motivo = null;
+  let monto = null;
+
+  if (aprobado) {
+    // El monto declarado viene precargado, pero se puede corregir por
+    // lo que de verdad recibiste — es lo que se le va a descontar.
+    const entrada = prompt(
+      `¿Cuánto recibiste realmente? (declaró $${Number(c.monto).toFixed(2)})`,
+      Number(c.monto).toFixed(2)
+    );
+    if (entrada === null) return;
+    monto = Number(entrada);
+    if (!monto || monto <= 0) {
+      alert('Escribe un monto válido.');
+      return;
+    }
+    if (!confirm(`Se descontarán $${monto.toFixed(2)} de su deuda. ¿Confirmas?`)) return;
+  } else {
+    motivo = prompt('¿Por qué lo rechazas? Se lo vamos a mostrar al conductor.');
+    if (motivo === null) return;
+    if (!motivo.trim()) {
+      alert('Escribe un motivo — así el conductor sabe qué corregir.');
+      return;
+    }
+  }
+  try {
+    await llamarAPI('POST', `/comprobante/${id}/revisar`, { aprobado, motivo, monto });
+    // Refrescamos también los conductores, para que la deuda que se
+    // muestra al revisar el próximo comprobante esté al día.
+    try { conductores = await llamarAPI('GET', '/conductores'); } catch (e) {}
+    await cargarComprobantes();
+    cerrarPanelConductor();
+  } catch (e) {
+    alert('No se pudo procesar: ' + e.message);
   }
 }
 

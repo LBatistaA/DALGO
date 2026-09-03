@@ -297,6 +297,41 @@ async function intentarConfirmar(id, conductorId) {
   });
 }
 
+// Cancelar guardando el contexto: quién lo hizo, en qué fase iba el
+// viaje y por qué. Sin esto no hay forma de detectar el patrón de
+// "cancela después de llegar y hace el viaje por fuera".
+async function cancelar(id, { canceladoPor, faseAlCancelar, motivo, cargoCancelacion }) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  const cambios = {
+    estado: "cancelado",
+    canceladoPor: canceladoPor || null, // 'usuario' | 'conductor'
+    faseAlCancelar: faseAlCancelar || null, // estado que tenía antes
+    motivoCancelacion: motivo || null,
+    canceladoEn: new Date().toISOString(),
+    cargoCancelacion: Number(cargoCancelacion || 0),
+  };
+  await ref.update(cambios);
+  return { ...snap.data(), ...cambios };
+}
+
+async function guardarDistanciaInicial(id, metros) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.update({ metrosInicialesConductor: metros });
+  return { ...snap.data(), metrosInicialesConductor: metros };
+}
+
+async function guardarDistanciaCancelacion(id, metros) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.update({ metrosDelOrigenAlCancelar: metros });
+  return { ...snap.data(), metrosDelOrigenAlCancelar: metros };
+}
+
 async function actualizarEstado(id, nuevoEstado) {
   const ref = db.collection(COLECCION).doc(id);
   const snap = await ref.get();
@@ -377,6 +412,9 @@ module.exports = {
   descartarParaConductor,
   intentarConfirmar,
   actualizarEstado,
+  cancelar,
+  guardarDistanciaCancelacion,
+  guardarDistanciaInicial,
   marcarCalificado,
   marcarCalificadoAliado,
   agregarMensaje,
