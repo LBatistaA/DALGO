@@ -316,6 +316,41 @@ async function cancelar(id, { canceladoPor, faseAlCancelar, motivo, cargoCancela
   return { ...snap.data(), ...cambios };
 }
 
+// El cliente declara que ya transfirió. No mueve dinero — el pago va
+// directo de su cuenta a la del conductor; esto solo deja registro.
+async function guardarCompletadoEn(id) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  const cambios = { completadoEn: new Date().toISOString() };
+  await ref.update(cambios);
+  return { ...snap.data(), ...cambios };
+}
+
+async function marcarPagadoPorCliente(id) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  const cambios = { pagoMarcadoEn: new Date().toISOString() };
+  await ref.update(cambios);
+  return { ...snap.data(), ...cambios };
+}
+
+// El conductor confirma que le llegó, o abre disputa diciendo que no.
+// Si no hace ninguna de las dos en el plazo, se da por pagado.
+async function responderPago(id, { recibido, motivo }) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  const cambios = {
+    pagoRespondidoEn: new Date().toISOString(),
+    pagoRecibido: !!recibido,
+    pagoDisputaMotivo: recibido ? null : motivo || null,
+  };
+  await ref.update(cambios);
+  return { ...snap.data(), ...cambios };
+}
+
 async function guardarDistanciaInicial(id, metros) {
   const ref = db.collection(COLECCION).doc(id);
   const snap = await ref.get();
@@ -415,6 +450,9 @@ module.exports = {
   cancelar,
   guardarDistanciaCancelacion,
   guardarDistanciaInicial,
+  guardarCompletadoEn,
+  marcarPagadoPorCliente,
+  responderPago,
   marcarCalificado,
   marcarCalificadoAliado,
   agregarMensaje,

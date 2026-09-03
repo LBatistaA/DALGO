@@ -41,4 +41,9 @@ module.exports = {
   // recorrió más de la mitad del camino, o si le dice en el sitio que
   // ya no quiere el viaje. Se lo cobra el conductor directamente.
   cargoPorCancelacionTardia: 1.0, // USD
+
+  // Minutos que tiene el conductor para decir "no me llegó el pago"
+  // después de que el cliente marca que pagó. Pasado ese rato sin
+  // reclamo, el pago se da por bueno y el caso se cierra solo.
+  minutosParaConfirmarPago: 15,
 };

@@ -187,6 +187,26 @@ function infoPublicaUsuario(u) {
   };
 }
 
+
+// ¿Este viaje quedó con el pago sin cerrar? Un viaje está pendiente si
+// el cliente nunca marcó que pagó (pasado el plazo), o si el conductor
+// abrió disputa diciendo que no le llegó. Si el cliente marcó y el
+// conductor no dijo nada en el plazo, se da por pagado solo.
+function pagoPendiente(pedido, minutosPlazo) {
+  if (pedido.estado !== "completado") return false;
+  if (pedido.tipoServicio !== "carrera") return false; // el pago directo
+  const limite = Date.now() - minutosPlazo * 60 * 1000;
+  if (!pedido.pagoMarcadoEn) {
+    // El cliente no ha marcado. Se le da el mismo plazo antes de
+    // considerarlo pendiente de verdad.
+    const completadoEn = new Date(pedido.completadoEn || pedido.creadoEn || 0).getTime();
+    return completadoEn < limite;
+  }
+  // Marcó que pagó, pero el conductor abrió disputa
+  if (pedido.pagoRespondidoEn && pedido.pagoRecibido === false) return true;
+  return false;
+}
+
 const server = http.createServer(async (req, res) => {
   const partes = segmentos(req.url);
 
@@ -251,6 +271,24 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && req.url.startsWith("/pedido") && partes.length === 1) {
       const uid = await verificarToken(req);
       if (!uid) return noAutorizado(res);
+
+      // Si dejó viajes anteriores sin cerrar el pago, no puede pedir
+      // otro hasta resolverlo. Solo cuenta cuando de verdad quedó
+      // pendiente: nunca marcó que pagó pasado el plazo, o el conductor
+      // reclamó que no le llegó.
+      const historialCliente = await pedidosStore.obtenerPorUsuario(uid);
+      const sinPagar = historialCliente.filter((p) =>
+        pagoPendiente(p, fareConfig.minutosParaConfirmarPago)
+      );
+      if (sinPagar.length > 0) {
+        return enviarJSON(res, 403, {
+          error:
+            "Tienes un viaje anterior con el pago sin confirmar. " +
+            "Confirma que pagaste o comunícate con soporte para poder pedir otro.",
+          pedidosSinPagar: sinPagar.map((p) => p.id),
+        });
+      }
+
       const body = await leerCuerpo(req);
       const {
         tipoServicio,
@@ -1037,6 +1075,71 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { pedido: actualizado });
     }
 
+    // POST /pedido/:id/marcar-pagado — solo el cliente del viaje.
+    // Declara que ya transfirió; el conductor tiene unos minutos para
+    // decir que no le llegó.
+    if (
+      req.method === "POST" &&
+      partes[0] === "pedido" &&
+      partes[2] === "marcar-pagado"
+    ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      const pedido = await pedidosStore.obtenerPorId(partes[1]);
+      if (!pedido) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
+      if (pedido.usuarioId !== uid && pedido.creadoPorId !== uid) return prohibido(res);
+      const actualizado = await pedidosStore.marcarPagadoPorCliente(partes[1]);
+      const conductor = pedido.conductorId
+        ? await conductoresStore.obtener(pedido.conductorId)
+        : null;
+      enviarNotificacion(
+        conductor?.fcmToken,
+        "El pasajero marcó que pagó",
+        `Revisa si te llegó. Tienes ${fareConfig.minutosParaConfirmarPago} minutos para avisar si no.`,
+        { pedidoId: pedido.id }
+      );
+      return enviarJSON(res, 200, { pedido: actualizado });
+    }
+
+    // POST /pedido/:id/responder-pago { recibido, motivo } — solo el
+    // conductor del viaje.
+    if (
+      req.method === "POST" &&
+      partes[0] === "pedido" &&
+      partes[2] === "responder-pago"
+    ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      const pedido = await pedidosStore.obtenerPorId(partes[1]);
+      if (!pedido) return enviarJSON(res, 404, { error: "Pedido no encontrado" });
+      if (pedido.conductorId !== uid) return prohibido(res);
+      const body = await leerCuerpo(req);
+      const actualizado = await pedidosStore.responderPago(partes[1], {
+        recibido: body.recibido,
+        motivo: body.motivo,
+      });
+      if (!body.recibido && pedido.usuarioId) {
+        const cliente = await usuariosStore.obtener(pedido.usuarioId);
+        enviarNotificacion(
+          cliente?.fcmToken,
+          "Tu conductor no ha recibido el pago",
+          "Revisa la transferencia — no podrás pedir más viajes hasta resolverlo.",
+          { pedidoId: pedido.id }
+        );
+      }
+      return enviarJSON(res, 200, { pedido: actualizado });
+    }
+
+    // GET /pedidos/pagos-pendientes — SOLO administrador
+    if (req.method === "GET" && req.url === "/pedidos/pagos-pendientes") {
+      if (!esAdmin(req)) return prohibido(res);
+      const todosPedidos = await pedidosStore.todos();
+      const pendientes = todosPedidos.filter((p) =>
+        pagoPendiente(p, fareConfig.minutosParaConfirmarPago)
+      );
+      return enviarJSON(res, 200, { pendientes });
+    }
+
     // POST /pedido/:id/completar — solo el conductor YA asignado
     if (req.method === "POST" && partes[0] === "pedido" && partes[2] === "completar") {
       const uid = await verificarToken(req);
@@ -1047,6 +1150,7 @@ const server = http.createServer(async (req, res) => {
 
       const body = await leerCuerpo(req);
       const pedido = await pedidosStore.actualizarEstado(partes[1], "completado");
+      await pedidosStore.guardarCompletadoEn(partes[1]);
       await conductoresStore.marcarDisponible(pedido.conductorId);
 
       // Comisión de M.O.V.I. por el viaje — se suma a lo que el
