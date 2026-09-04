@@ -195,6 +195,19 @@ async function actualizarPagoMovil(id, { documento, telefono, banco }) {
 // El cliente le paga directo (Pago Móvil), así que la app nunca toca
 // ese dinero — solo lleva la cuenta de lo que el conductor le debe a
 // M.O.V.I. por usar la plataforma.
+async function marcarTelefonoVerificado(id, telefono) {
+  const ref = db.collection(COLECCION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  const cambios = {
+    telefonoVerificado: true,
+    telefonoVerificadoEn: new Date().toISOString(),
+  };
+  if (telefono) cambios.telefono = telefono;
+  await ref.update(cambios);
+  return { ...snap.data(), ...cambios };
+}
+
 async function sumarComision(id, monto) {
   const ref = db.collection(COLECCION).doc(id);
   const snap = await ref.get();
@@ -302,6 +315,7 @@ module.exports = {
   marcarOcupado,
   marcarDisponible,
   guardarFcmToken,
+  marcarTelefonoVerificado,
   sumarComision,
   registrarPagoComision,
   disponibles,

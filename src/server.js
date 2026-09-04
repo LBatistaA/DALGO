@@ -1535,6 +1535,26 @@ const server = http.createServer(async (req, res) => {
       return enviarJSON(res, 200, { conductor });
     }
 
+    // POST /conductor/:id/telefono/verificar — solo uno mismo. Se
+    // llama después de que Firebase confirmó el número por SMS.
+    if (
+      req.method === "POST" &&
+      partes[0] === "conductor" &&
+      partes[2] === "telefono" &&
+      partes[3] === "verificar"
+    ) {
+      const uid = await verificarToken(req);
+      if (!uid) return noAutorizado(res);
+      if (uid !== partes[1]) return prohibido(res);
+      const body = await leerCuerpo(req);
+      const conductor = await conductoresStore.marcarTelefonoVerificado(
+        partes[1],
+        body.telefono
+      );
+      if (!conductor) return enviarJSON(res, 404, { error: "Conductor no registrado" });
+      return enviarJSON(res, 200, { conductor });
+    }
+
     // POST /conductor/:id/pago-movil { documento, telefono, banco }
     // solo el conductor mismo puede guardar sus propios datos
     if (req.method === "POST" && partes[0] === "conductor" && partes[2] === "pago-movil") {
